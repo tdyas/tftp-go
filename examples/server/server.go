@@ -7,7 +7,9 @@ import (
 )
 
 func main() {
-	server, err := tftp.NewServer(":9090")
+	dir, err := os.Getwd()
+	log.Printf("root: %v", dir)
+	server, err := tftp.NewServer(":9090", dir)
 	if err != nil {
 		log.Printf("Error: %v", err)
 		os.Exit(1)

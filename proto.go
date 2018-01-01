@@ -15,7 +15,7 @@ const (
 	ERR_UNKNOWN_TRANSFER_ID = 5 // Unknown transfer ID.
 	ERR_FILE_EXISTS         = 6 // File already exists.
 	ERR_NO_USER             = 7 // No such user.
-	ERR_OPTIONS_REJECTED    = 8
+	ERR_INVALID_OPTIONS     = 8
 )
 
 type ReadRequest struct {
