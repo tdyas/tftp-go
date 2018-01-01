@@ -229,3 +229,18 @@ func (e *Error) ToBytes() []byte {
 
 	return buffer.Bytes()
 }
+
+func (oack *OptionsAck) ToBytes() []byte {
+	var buffer bytes.Buffer
+
+	binary.Write(&buffer, binary.BigEndian, uint16(6))
+
+	for key, value := range oack.Options {
+		binary.Write(&buffer, binary.BigEndian, []byte(key))
+		binary.Write(&buffer, binary.BigEndian, byte(0))
+		binary.Write(&buffer, binary.BigEndian, []byte(value))
+		binary.Write(&buffer, binary.BigEndian, byte(0))
+	}
+
+	return buffer.Bytes()
+}
