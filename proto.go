@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"log"
 )
 
 const (
@@ -75,14 +74,18 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 			return nil, MalformedPacketError
 		}
 		strs = strs[0:len(strs)-1]
-		log.Printf("strs: %v", strs)
 		if len(strs) < 2 {
 			return nil, MalformedPacketError
 		}
+		if (len(strs) % 2) != 0 {
+			return nil, MalformedPacketError
+		}
+
 		var options map[string]string = nil
 		if len(strs) > 2 {
 			options = stringsToMap(strs[2:])
 		}
+
 		rrq := ReadRequest{
 			Filename: string(strs[0]),
 			Mode:     string(strs[1]),
@@ -96,14 +99,18 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 			return nil, MalformedPacketError
 		}
 		strs = strs[0:len(strs)-1]
-		log.Printf("strs: %v", strs)
 		if len(strs) < 2 {
 			return nil, MalformedPacketError
 		}
+		if (len(strs) % 2) != 0 {
+			return nil, MalformedPacketError
+		}
+
 		var options map[string]string = nil
 		if len(strs) > 2 {
 			options = stringsToMap(strs[2:])
 		}
+
 		wrq := ReadRequest{
 			Filename: string(strs[0]),
 			Mode:     string(strs[1]),
@@ -157,78 +164,64 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 
 
 func (rrq *ReadRequest) ToBytes() []byte {
-	n := 2 + len(rrq.Filename) + 1
-	n += len(rrq.Mode) + 1
-	for key, value := range rrq.Options {
-		n += len(key) + 1
-		n += len(value) + 1
-	}
+	var buffer bytes.Buffer
 
-	buffer := bytes.NewBuffer(make([]byte, n))
-	binary.Write(buffer, binary.BigEndian, uint16(1))
-	binary.Write(buffer, binary.BigEndian, []byte(rrq.Filename))
-	buffer.WriteByte(0)
-	binary.Write(buffer, binary.BigEndian, []byte(rrq.Mode))
-	buffer.WriteByte(0)
+	binary.Write(&buffer, binary.BigEndian, uint16(1))
+	binary.Write(&buffer, binary.BigEndian, []byte(rrq.Filename))
+	binary.Write(&buffer, binary.BigEndian, byte(0))
+	binary.Write(&buffer, binary.BigEndian, []byte(rrq.Mode))
+	binary.Write(&buffer, binary.BigEndian, byte(0))
+
 	for key, value := range rrq.Options {
-		binary.Write(buffer, binary.BigEndian, []byte(key))
-		buffer.WriteByte(0)
-		binary.Write(buffer, binary.BigEndian, []byte(value))
-		buffer.WriteByte(0)
+		binary.Write(&buffer, binary.BigEndian, []byte(key))
+		binary.Write(&buffer, binary.BigEndian, byte(0))
+		binary.Write(&buffer, binary.BigEndian, []byte(value))
+		binary.Write(&buffer, binary.BigEndian, byte(0))
 	}
 
 	return buffer.Bytes()
 }
 
 func (wrq *WriteRequest) ToBytes() []byte {
-	n := 2 + len(wrq.Filename) + 1
-	n += len(wrq.Mode) + 1
-	for key, value := range wrq.Options {
-		n += len(key) + 1
-		n += len(value) + 1
-	}
+	var buffer bytes.Buffer
 
-	buffer := bytes.NewBuffer(make([]byte, n))
-	binary.Write(buffer, binary.BigEndian, uint16(2))
-	binary.Write(buffer, binary.BigEndian, []byte(wrq.Filename))
-	buffer.WriteByte(0)
-	binary.Write(buffer, binary.BigEndian, []byte(wrq.Mode))
-	buffer.WriteByte(0)
+	binary.Write(&buffer, binary.BigEndian, uint16(2))
+	binary.Write(&buffer, binary.BigEndian, []byte(wrq.Filename))
+	binary.Write(&buffer, binary.BigEndian, byte(0))
+	binary.Write(&buffer, binary.BigEndian, []byte(wrq.Mode))
+	binary.Write(&buffer, binary.BigEndian, byte(0))
 	for key, value := range wrq.Options {
-		binary.Write(buffer, binary.BigEndian, []byte(key))
-		buffer.WriteByte(0)
-		binary.Write(buffer, binary.BigEndian, []byte(value))
-		buffer.WriteByte(0)
+		binary.Write(&buffer, binary.BigEndian, []byte(key))
+		binary.Write(&buffer, binary.BigEndian, byte(0))
+		binary.Write(&buffer, binary.BigEndian, []byte(value))
+		binary.Write(&buffer, binary.BigEndian, byte(0))
 	}
 
 	return buffer.Bytes()
 }
 
 func (d *Data) ToBytes() []byte {
-	n := 2 + 2 + len(d.Data)
-	buffer := bytes.NewBuffer(make([]byte, n))
+	var buffer bytes.Buffer
 
-	binary.Write(buffer, binary.BigEndian, uint16(3))
-	binary.Write(buffer, binary.BigEndian, d.Block)
-	binary.Write(buffer, binary.BigEndian, d.Data)
+	binary.Write(&buffer, binary.BigEndian, uint16(3))
+	binary.Write(&buffer, binary.BigEndian, d.Block)
+	binary.Write(&buffer, binary.BigEndian, d.Data)
 
 	return buffer.Bytes()
 }
 
 func (ack *Ack) ToBytes() []byte {
-	n := 2 + 2
-	buffer := bytes.NewBuffer(make([]byte, n))
+	var buffer bytes.Buffer
 
-	binary.Write(buffer, binary.BigEndian, uint16(4))
-	binary.Write(buffer, binary.BigEndian, ack.Block)
+	binary.Write(&buffer, binary.BigEndian, uint16(4))
+	binary.Write(&buffer, binary.BigEndian, ack.Block)
 
 	return buffer.Bytes()
 }
 
 func (e *Error) ToBytes() []byte {
-	//n := 2 + 2 + len(e.Message) + 1
-	//buffer := bytes.NewBuffer(make([]byte, n))
 	var buffer bytes.Buffer
+
 	binary.Write(&buffer, binary.BigEndian, uint16(5))
 	binary.Write(&buffer, binary.BigEndian, e.Code)
 	binary.Write(&buffer, binary.BigEndian, []byte(e.Message))
