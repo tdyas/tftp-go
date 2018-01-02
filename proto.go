@@ -111,7 +111,7 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 			options = stringsToMap(strs[2:])
 		}
 
-		wrq := ReadRequest{
+		wrq := WriteRequest{
 			Filename: string(strs[0]),
 			Mode:     string(strs[1]),
 			Options:  options,
