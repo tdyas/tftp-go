@@ -6,7 +6,7 @@ import (
 	"net"
 	"log"
 	"strconv"
-	"time"
+	"os"
 )
 
 var TftpProtocolViolation = errors.New("TFTP protocol violation")
@@ -18,53 +18,6 @@ type TftpRemoteError struct {
 
 func (e *TftpRemoteError) Error() string {
 	return e.Message
-}
-
-type clientConnectionState struct {
-	buffer               []byte
-	conn                 net.PacketConn
-	mainRemoteAddr       net.Addr
-	remoteAddr           net.Addr
-	blockSize            uint16
-	timeout              int
-	expectedTransferSize int
-	tracePackets         bool
-}
-
-func (state *clientConnectionState) send(packet packetMethods) (n int, err error) {
-	if state.tracePackets {
-		log.Printf("sending %s", packet.String())
-	}
-
-	remoteAddr := state.remoteAddr
-	if remoteAddr == nil {
-		remoteAddr = state.mainRemoteAddr
-	}
-	return state.conn.WriteTo(packet.ToBytes(), remoteAddr)
-}
-
-func (state *clientConnectionState) receive() (interface{}, error) {
-	state.conn.SetReadDeadline(time.Now().Add(time.Duration(state.timeout) * time.Second))
-	n, remoteAddr, err := state.conn.ReadFrom(state.buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	packet, err := PacketFromBytes(state.buffer[0:n])
-	if err != nil {
-		return nil, err
-	}
-
-	if state.remoteAddr == nil {
-		state.remoteAddr = remoteAddr
-		log.Printf("remote address: %v", remoteAddr)
-	}
-
-	if state.tracePackets {
-		log.Printf("received %s", packet.(packetMethods).String())
-	}
-
-	return packet, nil
 }
 
 func GetFile(address string, filename string, mode string, options int, writer io.Writer) error {
@@ -80,15 +33,14 @@ func GetFile(address string, filename string, mode string, options int, writer i
 	}
 	defer conn.Close()
 
-	state := clientConnectionState{
-		buffer:               make([]byte, 65535),
-		conn:                 conn,
-		mainRemoteAddr:       mainRemoteAddr,
-		remoteAddr:           nil,
-		blockSize:            DEFAULT_BLOCKSIZE,
-		timeout:              5,
-		expectedTransferSize: -1,
-		tracePackets:         true,
+	state := connectionState{
+		buffer:         make([]byte, 65535),
+		log:            log.New(os.Stderr, "TFTP: ", log.LstdFlags),
+		conn:           conn,
+		mainRemoteAddr: mainRemoteAddr,
+		blockSize:      DEFAULT_BLOCKSIZE,
+		timeout:        5,
+		tracePackets:   true,
 	}
 
 	enableTransferSizeOption := true
@@ -155,7 +107,7 @@ rrqLoop:
 				expectedTransferSize, err := strconv.Atoi(value)
 				if err == nil {
 					log.Printf("expected transfer size = %v", expectedTransferSize)
-					state.expectedTransferSize = expectedTransferSize
+					//state.expectedTransferSize = expectedTransferSize
 				}
 			}
 

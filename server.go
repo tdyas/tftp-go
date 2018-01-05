@@ -9,7 +9,6 @@ import (
 	"os"
 	"path"
 	"strconv"
-	"time"
 )
 
 const (
@@ -43,58 +42,17 @@ type Server struct {
 	done chan bool
 }
 
-type connectionState struct {
-	buffer       []byte
-	server       *Server
-	conn         net.PacketConn
-	remoteAddr   net.Addr
-	blockSize    uint16
-	timeout      int
-	tracePackets bool
-}
-
-type packetMethods interface {
-	ToBytes() []byte
-	String() string
-}
-
-func (state *connectionState) send(packet packetMethods) (n int, err error) {
-	if state.tracePackets {
-		state.server.log.Printf("sending %s", packet.String())
-	}
-	return state.conn.WriteTo(packet.ToBytes(), state.remoteAddr)
-}
-
-func (state *connectionState) receive() (interface{}, error) {
-	state.conn.SetReadDeadline(time.Now().Add(time.Duration(state.timeout) * time.Second))
-	n, _, err := state.conn.ReadFrom(state.buffer)
-	if err != nil {
-		return nil, err
-	}
-
-	packet, err := PacketFromBytes(state.buffer[0:n])
-	if err != nil {
-		return nil, err
-	}
-
-	if state.tracePackets {
-		state.server.log.Printf("received %s", packet.(packetMethods).String())
-	}
-
-	return packet, nil
-}
-
-func (state *connectionState) handleRRQ(request *ReadRequest, replyConn net.PacketConn, remoteAddr net.Addr) {
-	state.server.log.Printf("RRQ(%v): file=%v mode=%v", remoteAddr, request.Filename, request.Mode)
+func (server *Server) handleRRQ(state *connectionState, request *ReadRequest, replyConn net.PacketConn, remoteAddr net.Addr) {
+	server.log.Printf("RRQ(%v): file=%v mode=%v", remoteAddr, request.Filename, request.Mode)
 
 	// Ensure the file exists
-	fullPath := path.Join(state.server.root, request.Filename)
+	fullPath := path.Join(server.root, request.Filename)
 	stat, err := os.Stat(fullPath)
 	if err != nil || stat.IsDir() {
 		state.send(&Error{Code: ERR_FILE_NOT_FOUND, Message: "File not found"})
 		return
 	}
-	state.server.log.Printf("fullPath=%v, stat=%#v", fullPath, stat)
+	server.log.Printf("fullPath=%v, stat=%#v", fullPath, stat)
 
 	f, err := os.Open(fullPath)
 	if err != nil {
@@ -169,18 +127,18 @@ func (state *connectionState) handleRRQ(request *ReadRequest, replyConn net.Pack
 				}
 
 			case Error:
-				state.server.log.Printf("Client returned error: %v", packet.Message)
+				server.log.Printf("Client returned error: %v", packet.Message)
 				return
 
 			default:
-				state.server.log.Printf("Unexpected packet: %#v", packet)
+				server.log.Printf("Unexpected packet: %#v", packet)
 				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
 				return
 			}
 		}
 	}
 
-	state.server.log.Printf("state.blockSize=%v, timeout=", state.blockSize, state.timeout)
+	server.log.Printf("state.blockSize=%v, timeout=", state.blockSize, state.timeout)
 
 	// Start sending the file.
 	fileBuffer := make([]byte, state.blockSize)
@@ -189,7 +147,7 @@ fileSend:
 	for {
 		n, err := readExact(f, fileBuffer)
 		if err != nil {
-			state.server.log.Printf("readExact failed with: %v", err)
+			server.log.Printf("readExact failed with: %v", err)
 			return
 		}
 
@@ -199,7 +157,7 @@ fileSend:
 		for {
 			_, err := state.send(&dataPacket)
 			if err != nil {
-				state.server.log.Printf("Failed to send DATA: err=%v", n, err)
+				server.log.Printf("Failed to send DATA: err=%v", n, err)
 				return
 			}
 
@@ -219,11 +177,11 @@ fileSend:
 				}
 
 			case Error:
-				state.server.log.Printf("Client returned error: %v", packet.Message)
+				server.log.Printf("Client returned error: %v", packet.Message)
 				return
 
 			default:
-				state.server.log.Printf("Unexpected packet: %#v", packet)
+				server.log.Printf("Unexpected packet: %#v", packet)
 				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
 				return
 			}
@@ -238,17 +196,17 @@ fileSend:
 	}
 }
 
-func (state *connectionState) handleWRQ(request *WriteRequest, replyConn net.PacketConn, remoteAddr net.Addr) {
-	state.server.log.Printf("WRQ(%v): file=%v mode=%v", remoteAddr, request.Filename, request.Mode)
+func (server *Server) handleWRQ(state *connectionState, request *WriteRequest, replyConn net.PacketConn, remoteAddr net.Addr) {
+	server.log.Printf("WRQ(%v): file=%v mode=%v", remoteAddr, request.Filename, request.Mode)
 
 	// Ensure the file does not already exist.
-	fullPath := path.Join(state.server.root, request.Filename)
+	fullPath := path.Join(server.root, request.Filename)
 	stat, err := os.Stat(fullPath)
 	if err == nil {
 		state.send(&Error{Code: ERR_FILE_EXISTS, Message: "File already exists"})
 		return
 	}
-	state.server.log.Printf("fullPath=%v, stat=%#v", fullPath, stat)
+	server.log.Printf("fullPath=%v, stat=%#v", fullPath, stat)
 
 	f, err := os.OpenFile(fullPath, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
@@ -326,11 +284,11 @@ func (state *connectionState) handleWRQ(request *WriteRequest, replyConn net.Pac
 				}
 
 			case Error:
-				state.server.log.Printf("Client returned error: %v", packet.Message)
+				server.log.Printf("Client returned error: %v", packet.Message)
 				return
 
 			default:
-				state.server.log.Printf("Unexpected packet: %#v", packet)
+				server.log.Printf("Unexpected packet: %#v", packet)
 				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
 				return
 			}
@@ -356,18 +314,18 @@ func (state *connectionState) handleWRQ(request *WriteRequest, replyConn net.Pac
 				break ackSend
 
 			case Error:
-				state.server.log.Printf("Client returned error: %v", packet.Message)
+				server.log.Printf("Client returned error: %v", packet.Message)
 				return
 
 			default:
-				state.server.log.Printf("Unexpected packet: %#v", packet)
+				server.log.Printf("Unexpected packet: %#v", packet)
 				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
 				return
 			}
 		}
 	}
 
-	state.server.log.Printf("state.blockSize=%v, timeout=", state.blockSize, state.timeout)
+	server.log.Printf("state.blockSize=%v, timeout=", state.blockSize, state.timeout)
 
 	var blockNum uint16 = 1
 
@@ -403,11 +361,11 @@ dataBlockLoop:
 				continue dataBlockLoop
 
 			case Error:
-				state.server.log.Printf("Client returned error: %v", packet.Message)
+				server.log.Printf("Client returned error: %v", packet.Message)
 				return
 
 			default:
-				state.server.log.Printf("Unexpected packet: %#v", packet)
+				server.log.Printf("Unexpected packet: %#v", packet)
 				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
 				return
 			}
@@ -433,7 +391,7 @@ func (server *Server) handleRequest(requestBytes []byte, remoteAddr net.Addr) {
 
 	state := connectionState{
 		buffer:       make([]byte, 65535),
-		server:       server,
+		log:          server.log,
 		conn:         replyConn,
 		remoteAddr:   remoteAddr,
 		blockSize:    DEFAULT_BLOCKSIZE,
@@ -443,10 +401,10 @@ func (server *Server) handleRequest(requestBytes []byte, remoteAddr net.Addr) {
 
 	switch request := rawRequest.(type) {
 	case ReadRequest:
-		state.handleRRQ(&request, replyConn, remoteAddr)
+		server.handleRRQ(&state, &request, replyConn, remoteAddr)
 
 	case WriteRequest:
-		state.handleWRQ(&request, replyConn, remoteAddr)
+		server.handleWRQ(&state, &request, replyConn, remoteAddr)
 
 	default:
 		log.Printf("Non-RRQ/WRQ request from %v: %#v (%T)", remoteAddr, request, request)
