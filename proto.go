@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 )
 
 const (
@@ -149,11 +150,15 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 
 	case 6:
 		strs := bytes.Split(buffer[2:], []byte{0})
+		if len(strs[len(strs) - 1]) != 0 {
+			return nil, MalformedPacketError
+		}
+		strs = strs[0:len(strs)-1]
 		if (len(strs) % 2) != 0 {
 			return nil, MalformedPacketError
 		}
 		oack := OptionsAck{
-			Options: stringsToMap(strs[2:]),
+			Options: stringsToMap(strs),
 		}
 		return oack, nil
 
@@ -163,7 +168,7 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 }
 
 
-func (rrq *ReadRequest) ToBytes() []byte {
+func (rrq ReadRequest) ToBytes() []byte {
 	var buffer bytes.Buffer
 
 	binary.Write(&buffer, binary.BigEndian, uint16(1))
@@ -182,7 +187,15 @@ func (rrq *ReadRequest) ToBytes() []byte {
 	return buffer.Bytes()
 }
 
-func (wrq *WriteRequest) ToBytes() []byte {
+func (rrq ReadRequest) String() string {
+	var options = ""
+	for key, value := range rrq.Options {
+		options += fmt.Sprintf(", %v=%v", key, value)
+	}
+	return fmt.Sprintf("RRQ <file=%v, mode=%v%v>", rrq.Filename, rrq.Mode, options)
+}
+
+func (wrq WriteRequest) ToBytes() []byte {
 	var buffer bytes.Buffer
 
 	binary.Write(&buffer, binary.BigEndian, uint16(2))
@@ -200,7 +213,15 @@ func (wrq *WriteRequest) ToBytes() []byte {
 	return buffer.Bytes()
 }
 
-func (d *Data) ToBytes() []byte {
+func (wrq WriteRequest) String() string {
+	var options = ""
+	for key, value := range wrq.Options {
+		options += fmt.Sprint(", %v=%v", key, value)
+	}
+	return fmt.Sprintf("WRQ <file=%v, mode=%v%v>", wrq.Filename, wrq.Mode, options)
+}
+
+func (d Data) ToBytes() []byte {
 	var buffer bytes.Buffer
 
 	binary.Write(&buffer, binary.BigEndian, uint16(3))
@@ -210,7 +231,11 @@ func (d *Data) ToBytes() []byte {
 	return buffer.Bytes()
 }
 
-func (ack *Ack) ToBytes() []byte {
+func (d Data) String() string {
+	return fmt.Sprintf("DATA <block=%v, %v bytes>", d.Block, len(d.Data))
+}
+
+func (ack Ack) ToBytes() []byte {
 	var buffer bytes.Buffer
 
 	binary.Write(&buffer, binary.BigEndian, uint16(4))
@@ -219,7 +244,11 @@ func (ack *Ack) ToBytes() []byte {
 	return buffer.Bytes()
 }
 
-func (e *Error) ToBytes() []byte {
+func (ack Ack) String() string {
+	return fmt.Sprintf("ACK <block=%v>", ack.Block)
+}
+
+func (e Error) ToBytes() []byte {
 	var buffer bytes.Buffer
 
 	binary.Write(&buffer, binary.BigEndian, uint16(5))
@@ -230,7 +259,11 @@ func (e *Error) ToBytes() []byte {
 	return buffer.Bytes()
 }
 
-func (oack *OptionsAck) ToBytes() []byte {
+func (e Error) String() string {
+	return fmt.Sprintf("ERROR <code=%v, msg=%v>", e.Code, e.Message)
+}
+
+func (oack OptionsAck) ToBytes() []byte {
 	var buffer bytes.Buffer
 
 	binary.Write(&buffer, binary.BigEndian, uint16(6))
@@ -243,4 +276,17 @@ func (oack *OptionsAck) ToBytes() []byte {
 	}
 
 	return buffer.Bytes()
+}
+
+func (oack OptionsAck) String() string {
+	var options = ""
+	first := true
+	for key, value := range oack.Options {
+		if !first {
+			options += ", "
+			first = false
+		}
+		options += fmt.Sprintf("%v=%v", key, value)
+	}
+	return fmt.Sprintf("OACK <%v>", options)
 }

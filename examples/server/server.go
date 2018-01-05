@@ -4,10 +4,16 @@ import (
 	"github.com/tdyas/tftp"
 	"os"
 	"log"
+	"fmt"
 )
 
 func main() {
-	dir, err := os.Getwd()
+	if len(os.Args) != 2 {
+		fmt.Println("ERROR: Must specify directory.")
+		os.Exit(1)
+	}
+
+	dir := os.Args[1]
 	log.Printf("root: %v", dir)
 	server, err := tftp.NewServer(":9090", dir)
 	if err != nil {

@@ -22,7 +22,6 @@ func readExact(reader io.Reader, buffer []byte) (int, error) {
 	n := 0
 	for n < len(buffer) {
 		amtRead, err := reader.Read(buffer[n:])
-		log.Printf("readExact: amtRead=%v, err=%v", amtRead, err)
 		if err != nil {
 			return n, nil
 		}
@@ -45,19 +44,24 @@ type Server struct {
 }
 
 type connectionState struct {
-	buffer     []byte
-	server     *Server
-	conn       net.PacketConn
-	remoteAddr net.Addr
-	blockSize  uint16
-	timeout    int
+	buffer       []byte
+	server       *Server
+	conn         net.PacketConn
+	remoteAddr   net.Addr
+	blockSize    uint16
+	timeout      int
+	tracePackets bool
 }
 
-type bytesConvertible interface {
+type packetMethods interface {
 	ToBytes() []byte
+	String() string
 }
 
-func (state *connectionState) send(packet bytesConvertible) (n int, err error) {
+func (state *connectionState) send(packet packetMethods) (n int, err error) {
+	if state.tracePackets {
+		state.server.log.Printf("sending %s", packet.String())
+	}
 	return state.conn.WriteTo(packet.ToBytes(), state.remoteAddr)
 }
 
@@ -71,6 +75,10 @@ func (state *connectionState) receive() (interface{}, error) {
 	packet, err := PacketFromBytes(state.buffer[0:n])
 	if err != nil {
 		return nil, err
+	}
+
+	if state.tracePackets {
+		state.server.log.Printf("received %s", packet.(packetMethods).String())
 	}
 
 	return packet, nil
@@ -180,8 +188,8 @@ func (state *connectionState) handleRRQ(request *ReadRequest, replyConn net.Pack
 fileSend:
 	for {
 		n, err := readExact(f, fileBuffer)
-		state.server.log.Printf("readExact: n=%v, err=%v", n, err)
 		if err != nil {
+			state.server.log.Printf("readExact failed with: %v", err)
 			return
 		}
 
@@ -242,7 +250,7 @@ func (state *connectionState) handleWRQ(request *WriteRequest, replyConn net.Pac
 	}
 	state.server.log.Printf("fullPath=%v, stat=%#v", fullPath, stat)
 
-	f, err := os.OpenFile(fullPath, os.O_WRONLY | os.O_CREATE, 0666)
+	f, err := os.OpenFile(fullPath, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
 		state.send(&Error{Code: ERR_NOT_DEFINED, Message: "Unable to create file"})
 		return
@@ -424,12 +432,13 @@ func (server *Server) handleRequest(requestBytes []byte, remoteAddr net.Addr) {
 	defer replyConn.Close()
 
 	state := connectionState{
-		buffer:     make([]byte, 65535),
-		server:     server,
-		conn:       replyConn,
-		remoteAddr: remoteAddr,
-		blockSize:  DEFAULT_BLOCKSIZE,
-		timeout:    5,
+		buffer:       make([]byte, 65535),
+		server:       server,
+		conn:         replyConn,
+		remoteAddr:   remoteAddr,
+		blockSize:    DEFAULT_BLOCKSIZE,
+		timeout:      5,
+		tracePackets: true,
 	}
 
 	switch request := rawRequest.(type) {
