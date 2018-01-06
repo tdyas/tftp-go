@@ -46,6 +46,15 @@ func (state *connectionState) receive() (interface{}, error) {
 		return nil, err
 	}
 
+	// Ensure that the sender of this packet matches the expected address.
+	// RFC 1350: "If a source TID does not match, the packet should be discarded as erroneously sent from
+	// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
+	// disturbing the transfer."
+	if state.remoteAddr != nil && state.remoteAddr != remoteAddr {
+		state.send(&Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"})
+		return state.receive()
+	}
+
 	packet, err := PacketFromBytes(state.buffer[0:n])
 	if err != nil {
 		return nil, err
