@@ -50,20 +50,24 @@ func (state *connectionState) receive() (interface{}, error) {
 	// RFC 1350: "If a source TID does not match, the packet should be discarded as erroneously sent from
 	// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
 	// disturbing the transfer."
-	if state.remoteAddr != nil && state.remoteAddr != remoteAddr {
-		errorPacket := Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"}
-		state.conn.WriteTo(errorPacket.ToBytes(), remoteAddr)
-		return state.receive()
+	state.log.Printf("remoteAddr=%v, state.remoteAddr=%v, state.mainRemoteAddr",
+		remoteAddr, state.remoteAddr, state.mainRemoteAddr)
+	if state.remoteAddr != nil {
+		if state.remoteAddr.String() != remoteAddr.String() {
+			errorPacket := Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"}
+			state.conn.WriteTo(errorPacket.ToBytes(), remoteAddr)
+			return state.receive()
+		}
+	} else {
+		if state.mainRemoteAddr != nil && remoteAddr.String() != state.mainRemoteAddr.String() {
+			state.remoteAddr = remoteAddr
+			state.log.Printf("remote address: %v", remoteAddr)
+		}
 	}
 
 	packet, err := PacketFromBytes(state.buffer[0:n])
 	if err != nil {
 		return nil, err
-	}
-
-	if state.remoteAddr == nil {
-		state.remoteAddr = remoteAddr
-		state.log.Printf("remote address: %v", remoteAddr)
 	}
 
 	if state.tracePackets {
