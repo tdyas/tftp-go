@@ -15,7 +15,7 @@ func main() {
 
 	dir := os.Args[1]
 	log.Printf("root: %v", dir)
-	server, err := tftp.NewServer(":9090", dir)
+	server, err := tftp.NewServer(":9090", dir, nil)
 	if err != nil {
 		log.Printf("Error: %v", err)
 		os.Exit(1)

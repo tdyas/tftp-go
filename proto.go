@@ -19,6 +19,12 @@ const (
 	ERR_INVALID_OPTIONS     = 8
 )
 
+const (
+	DEFAULT_BLOCKSIZE = 512
+	MIN_BLOCK_SIZE = 8
+	MAX_BLOCK_SIZE = 65464
+)
+
 type ReadRequest struct {
 	Filename string
 	Mode     string

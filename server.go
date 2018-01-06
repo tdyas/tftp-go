@@ -11,10 +11,6 @@ import (
 	"strconv"
 )
 
-const (
-	DEFAULT_BLOCKSIZE = 512
-)
-
 var RootMustBeAADirectoryError = errors.New("the TFTP root must be a directory")
 
 func readExact(reader io.Reader, buffer []byte) (int, error) {
@@ -35,11 +31,17 @@ func readExact(reader io.Reader, buffer []byte) (int, error) {
 	return n, nil
 }
 
+type ServerConfig struct {
+	MaxBlockSize   uint16
+	DisableOptions bool
+}
+
 type Server struct {
-	conn net.PacketConn
-	root string
-	log  *log.Logger
-	done chan bool
+	config *ServerConfig
+	conn   net.PacketConn
+	root   string
+	log    *log.Logger
+	done   chan bool
 }
 
 func (server *Server) handleRRQ(state *connectionState, request *ReadRequest, replyConn net.PacketConn, remoteAddr net.Addr) {
@@ -64,13 +66,13 @@ func (server *Server) handleRRQ(state *connectionState, request *ReadRequest, re
 	var hasBlockSizeOption = false
 	if requestedBlockSizeString, ok := request.Options["blksize"]; ok {
 		requestedBlockSize, err := strconv.Atoi(requestedBlockSizeString)
-		if err != nil || requestedBlockSize < 1 {
+		if err != nil || requestedBlockSize < MIN_BLOCK_SIZE {
 			state.send(&Error{Code: ERR_INVALID_OPTIONS, Message: "Invalid blksize option"})
 			return
 		}
 
-		if requestedBlockSize > 16384 {
-			requestedBlockSize = 16384
+		if requestedBlockSize > int(server.config.MaxBlockSize) {
+			requestedBlockSize = int(server.config.MaxBlockSize)
 		}
 
 		state.blockSize = uint16(requestedBlockSize)
@@ -95,7 +97,7 @@ func (server *Server) handleRRQ(state *connectionState, request *ReadRequest, re
 		hasTimeoutOption = true
 	}
 
-	if hasBlockSizeOption || hasTransferSizeOption || hasTimeoutOption {
+	if !server.config.DisableOptions && (hasBlockSizeOption || hasTransferSizeOption || hasTimeoutOption) {
 		oack := OptionsAck{Options: make(map[string]string)}
 		if hasBlockSizeOption {
 			oack.Options["blksize"] = strconv.Itoa(int(state.blockSize))
@@ -217,14 +219,17 @@ func (server *Server) handleWRQ(state *connectionState, request *WriteRequest, r
 
 	var hasBlockSizeOption = false
 	if requestedBlockSizeString, ok := request.Options["blksize"]; ok {
+		// RFC 2348: "Valid values range between '8' and '65464' octets, inclusive.  The
+		// blocksize refers to the number of data octets; it does not include the four octets
+		// of TFTP header."
 		requestedBlockSize, err := strconv.Atoi(requestedBlockSizeString)
-		if err != nil || requestedBlockSize < 1 {
+		if err != nil || requestedBlockSize < MIN_BLOCK_SIZE {
 			state.send(&Error{Code: ERR_INVALID_OPTIONS, Message: "Invalid blksize option"})
 			return
 		}
 
-		if requestedBlockSize > 16384 {
-			requestedBlockSize = 16384
+		if requestedBlockSize > int(server.config.MaxBlockSize) {
+			requestedBlockSize = int(server.config.MaxBlockSize)
 		}
 
 		state.blockSize = uint16(requestedBlockSize)
@@ -429,7 +434,27 @@ func (server *Server) mainServerLoop() {
 	server.done <- true
 }
 
-func NewServer(address string, root string) (*Server, error) {
+func validateServerConfig(config *ServerConfig) *ServerConfig {
+	if config == nil {
+		config = &ServerConfig{}
+	}
+
+	// RFC 2348: "Valid values range between '8' and '65464' octets, inclusive.  The
+	// blocksize refers to the number of data octets; it does not include the four octets
+	// of TFTP header."
+	if config.MaxBlockSize == 0 {
+		config.MaxBlockSize = MAX_BLOCK_SIZE
+	}
+	if config.MaxBlockSize < MIN_BLOCK_SIZE || config.MaxBlockSize > MAX_BLOCK_SIZE {
+		panic("MaxBlockSize must be between 8 and 65464 inclusive.")
+	}
+
+	return config
+}
+
+func NewServer(address string, root string, config *ServerConfig) (*Server, error) {
+	config = validateServerConfig(config)
+
 	conn, err := net.ListenPacket("udp", address)
 	if err != nil {
 		return nil, err
@@ -444,10 +469,11 @@ func NewServer(address string, root string) (*Server, error) {
 	}
 
 	server := Server{
-		conn: conn,
-		root: root,
-		log:  log.New(os.Stderr, "TFTP: ", log.LstdFlags),
-		done: make(chan bool, 1),
+		config: config,
+		conn:   conn,
+		root:   root,
+		log:    log.New(os.Stderr, "TFTP: ", log.LstdFlags),
+		done:   make(chan bool, 1),
 	}
 
 	go server.mainServerLoop()
