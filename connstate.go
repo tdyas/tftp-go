@@ -51,7 +51,8 @@ func (state *connectionState) receive() (interface{}, error) {
 	// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
 	// disturbing the transfer."
 	if state.remoteAddr != nil && state.remoteAddr != remoteAddr {
-		state.send(&Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"})
+		errorPacket := Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"}
+		state.conn.WriteTo(errorPacket.ToBytes(), remoteAddr)
 		return state.receive()
 	}
 
