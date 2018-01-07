@@ -580,6 +580,10 @@ func NewServer(address string, config *ServerConfig) (*Server, error) {
 	return &server, nil
 }
 
+func (s *Server) LocalAddr() net.Addr {
+	return s.conn.LocalAddr()
+}
+
 func (s *Server) Close() {
 	s.conn.Close()
 }
