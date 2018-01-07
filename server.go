@@ -42,6 +42,7 @@ type ServerConfig struct {
 	WriteRoot      string
 	GetReadStream  func(filename string) (io.ReadCloser, int64, error)
 	GetWriteStream func(filename string) (io.WriteCloser, error)
+	Logger         *log.Logger
 }
 
 type Server struct {
@@ -518,10 +519,8 @@ func (server *Server) mainServerLoop() {
 	server.done <- true
 }
 
-func validateServerConfig(config *ServerConfig) (*ServerConfig, error) {
-	if config == nil {
-		config = &ServerConfig{}
-	}
+func validateServerConfig(userConfig *ServerConfig) (*ServerConfig, error) {
+	var config = *userConfig
 
 	// RFC 2348: "Valid values range between '8' and '65464' octets, inclusive.  The
 	// blocksize refers to the number of data octets; it does not include the four octets
@@ -553,7 +552,11 @@ func validateServerConfig(config *ServerConfig) (*ServerConfig, error) {
 		}
 	}
 
-	return config, nil
+	if config.Logger == nil {
+		config.Logger = log.New(os.Stderr, "TFTP: ", log.LstdFlags)
+	}
+
+	return &config, nil
 }
 
 func NewServer(address string, config *ServerConfig) (*Server, error) {
@@ -570,7 +573,7 @@ func NewServer(address string, config *ServerConfig) (*Server, error) {
 	server := Server{
 		config: config,
 		conn:   conn,
-		log:    log.New(os.Stderr, "TFTP: ", log.LstdFlags),
+		log:    config.Logger,
 		done:   make(chan bool, 1),
 	}
 

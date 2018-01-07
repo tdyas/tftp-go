@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 	"testing"
+	"log"
 )
 
 type testStep struct {
@@ -93,6 +94,7 @@ func TestReadSupport(t *testing.T) {
 
 			return ioutil.NopCloser(bytes.NewReader(data[0:sizeToRead])), int64(sizeToRead), nil
 		},
+		Logger: log.New(ioutil.Discard, "", 0),
 	}
 
 	server, err := NewServer("127.0.0.1:0", &config)
