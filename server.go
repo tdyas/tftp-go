@@ -34,6 +34,7 @@ func readExact(reader io.Reader, buffer []byte) (int, error) {
 type ServerConfig struct {
 	MaxBlockSize   uint16
 	DisableOptions bool
+	TracePackets   bool
 }
 
 type Server struct {
@@ -401,7 +402,7 @@ func (server *Server) handleRequest(requestBytes []byte, remoteAddr net.Addr) {
 		remoteAddr:   remoteAddr,
 		blockSize:    DEFAULT_BLOCKSIZE,
 		timeout:      5,
-		tracePackets: true,
+		tracePackets: server.config.TracePackets,
 	}
 
 	switch request := rawRequest.(type) {
