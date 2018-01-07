@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"github.com/tdyas/tftp"
+	"github.com/tdyas/tftp-go"
 )
 
 func main() {

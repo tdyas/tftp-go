@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/tdyas/tftp"
 	"os"
 	"log"
 	"fmt"
+	"github.com/tdyas/tftp-go"
 )
 
 func main() {
