@@ -1,14 +1,14 @@
 package tftp
 
 import (
+	"bytes"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
-	"testing"
-	"bytes"
 	"strconv"
 	"time"
+	"testing"
 )
 
 type testStep struct {

@@ -2,9 +2,9 @@ package tftp
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"time"
-	"log"
 )
 
 type connectionState struct {

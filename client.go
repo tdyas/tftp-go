@@ -3,10 +3,10 @@ package tftp
 import (
 	"errors"
 	"io"
-	"net"
 	"log"
-	"strconv"
+	"net"
 	"os"
+	"strconv"
 )
 
 var TftpProtocolViolation = errors.New("TFTP protocol violation")

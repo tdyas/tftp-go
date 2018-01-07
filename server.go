@@ -1,6 +1,5 @@
 package tftp
 
-//import "context"
 import (
 	"errors"
 	"io"
