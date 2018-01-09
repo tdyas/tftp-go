@@ -94,6 +94,9 @@ func TestReadSupport(t *testing.T) {
 
 			return ioutil.NopCloser(bytes.NewReader(data[0:sizeToRead])), int64(sizeToRead), nil
 		},
+		GetWriteStream: func(filename string) (io.WriteCloser, error) {
+			return nil, OperationNotSupportedError
+		},
 		Logger: log.New(ioutil.Discard, "", 0),
 	}
 
@@ -117,7 +120,7 @@ func TestReadSupport(t *testing.T) {
 		{Send: Ack{Block: 2}},
 	})
 
-	runTest(t, server, "block aligned", []testStep{
+	runTest(t, server, "block aligned read", []testStep{
 		{Send: ReadRequest{Filename: "1024", Mode: "octet"}},
 		{Receive: Data{Block: 1, Data: data[0:512]}},
 		{Send: Ack{Block: 1}},
@@ -181,4 +184,87 @@ func TestReadSupport(t *testing.T) {
 		{Send: Ack{Block: 2}},
 	})
 
+	runTest(t, server, "no write support", []testStep{
+		{Send: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
+		{Receive: Error{Code: ERR_ILLEGAL_OPERATION, Message: "Write requests are not supported."}},
+	})
+}
+
+type closableBuffer struct {
+	bytes.Buffer
+}
+
+func (b *closableBuffer) Close() error {
+	return nil
+}
+
+func TestWriteSupport(t *testing.T) {
+	data := make([]byte, 3*512)
+	_, err := rand.Read(data)
+	if err != nil {
+		t.Errorf("Unable to fill buffer: %v", err)
+		return
+	}
+
+	var buffer closableBuffer
+
+	var config = ServerConfig{
+		TracePackets: true,
+		GetReadStream: func(filename string) (io.ReadCloser, int64, error) {
+			return nil, -1, OperationNotSupportedError
+		},
+		GetWriteStream: func(filename string) (io.WriteCloser, error) {
+			_, err := strconv.Atoi(filename)
+			if err != nil {
+				return nil, FileExistsError
+			}
+
+			buffer.Truncate(0)
+			return &buffer, nil
+		},
+		Logger: log.New(ioutil.Discard, "", 0),
+	}
+
+	server, err := NewServer("127.0.0.1:0", &config)
+	if err != nil {
+		t.Errorf("Unable to create server: %v", err)
+		return
+	}
+	defer server.Close()
+
+	runTest(t, server, "file already exists", []testStep{
+		{Send: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
+		{Receive: Error{Code: ERR_FILE_EXISTS, Message: "File already exists"}},
+	})
+
+	runTest(t, server, "basic write", []testStep{
+		{Send: WriteRequest{Filename: "768", Mode: "octet"}},
+		{Receive: Ack{Block: 0}},
+		{Send: Data{Block: 1, Data: data[0:512]}},
+		{Receive: Ack{Block: 1}},
+		{Send: Data{Block: 2, Data: data[512:768]}},
+		{Receive: Ack{Block: 2}},
+	})
+	if !bytes.Equal(data[0:768], buffer.Bytes()) {
+		t.Errorf("Test 'basic write': Written results do not match.")
+	}
+
+	runTest(t, server, "block aligned write", []testStep{
+		{Send: WriteRequest{Filename: "1024", Mode: "octet"}},
+		{Receive: Ack{Block: 0}},
+		{Send: Data{Block: 1, Data: data[0:512]}},
+		{Receive: Ack{Block: 1}},
+		{Send: Data{Block: 2, Data: data[512:1024]}},
+		{Receive: Ack{Block: 2}},
+		{Send: Data{Block: 3, Data: []byte{}}},
+		{Receive: Ack{Block: 3}},
+	})
+	if !bytes.Equal(data[0:1024], buffer.Bytes()) {
+		t.Errorf("Test 'block aligned write': Written results do not match.")
+	}
+
+	runTest(t, server, "no read support", []testStep{
+		{Send: ReadRequest{Filename: "xyzzy", Mode: "octet"}},
+		{Receive: Error{Code: ERR_FILE_NOT_FOUND, Message: "File not found"}},
+	})
 }
