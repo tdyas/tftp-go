@@ -263,6 +263,42 @@ func TestWriteSupport(t *testing.T) {
 		t.Errorf("Test 'block aligned write': Written results do not match.")
 	}
 
+	runTest(t, server, "blksize option rejected (too small)", []testStep{
+		{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+			"blksize": strconv.Itoa(MIN_BLOCK_SIZE - 1)}}},
+		{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+	})
+
+	runTest(t, server, "blksize option rejected (not a number)", []testStep{
+		{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+			"blksize": "xyzzy"}}},
+		{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+	})
+
+	runTest(t, server, "too large blksize option clamped", []testStep{
+		{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+			"blksize": strconv.Itoa(MAX_BLOCK_SIZE + 1)}}},
+		{Receive: OptionsAck{map[string]string{"blksize": strconv.Itoa(MAX_BLOCK_SIZE)}}},
+		{Send: Data{Block: 1, Data: data[0:1024]}},
+		{Receive: Ack{1}},
+	})
+	if !bytes.Equal(data[0:1024], buffer.Bytes()) {
+		t.Errorf("Test 'too large blksize option clamped': Written results do not match.")
+	}
+
+	runTest(t, server, "larger blksize write", []testStep{
+		{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+			"blksize": "768"}}},
+		{Receive: OptionsAck{map[string]string{"blksize": "768"}}},
+		{Send: Data{Block: 1, Data: data[0:768]}},
+		{Receive: Ack{1}},
+		{Send: Data{Block: 2, Data: data[768:1024]}},
+		{Receive: Ack{2}},
+	})
+	if !bytes.Equal(data[0:1024], buffer.Bytes()) {
+		t.Errorf("Test 'larger blksize write': Written results do not match.")
+	}
+
 	runTest(t, server, "no read support", []testStep{
 		{Send: ReadRequest{Filename: "xyzzy", Mode: "octet"}},
 		{Receive: Error{Code: ERR_FILE_NOT_FOUND, Message: "File not found"}},
