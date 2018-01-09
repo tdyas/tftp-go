@@ -126,4 +126,59 @@ func TestReadSupport(t *testing.T) {
 		{Receive: Data{Block: 3, Data: []byte{}}},
 		{Send: Ack{Block: 3}},
 	})
+
+	runTest(t, server, "blksize option rejected (too small)", []testStep{
+		{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+			"blksize": strconv.Itoa(MIN_BLOCK_SIZE - 1)}}},
+		{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+	})
+
+	runTest(t, server, "blksize option rejected (not a number)", []testStep{
+		{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+			"blksize": "xyzzy"}}},
+		{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+	})
+
+	runTest(t, server, "too large blksize option clamped", []testStep{
+		{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+			"blksize": strconv.Itoa(MAX_BLOCK_SIZE + 1)}}},
+		{Receive: OptionsAck{map[string]string{"blksize": strconv.Itoa(MAX_BLOCK_SIZE)}}},
+		{Send: Ack{0}},
+		{Receive: Data{Block: 1, Data: data[0:1024]}},
+		{Send: Ack{1}},
+	})
+
+	runTest(t, server, "larger blksize read", []testStep{
+		{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+			"blksize": "768"}}},
+		{Receive: OptionsAck{map[string]string{"blksize": "768"}}},
+		{Send: Ack{0}},
+		{Receive: Data{Block: 1, Data: data[0:768]}},
+		{Send: Ack{1}},
+		{Receive: Data{Block: 2, Data: data[768:1024]}},
+		{Send: Ack{2}},
+	})
+
+	runTest(t, server, "tsize option", []testStep{
+		{Send: ReadRequest{Filename: "768", Mode: "octet", Options: map[string]string{
+			"tsize": "0"}}},
+		{Receive: OptionsAck{map[string]string{"tsize": "768"}}},
+		{Send: Ack{0}},
+		{Receive: Data{Block: 1, Data: data[0:512]}},
+		{Send: Ack{Block: 1}},
+		{Receive: Data{Block: 2, Data: data[512:768]}},
+		{Send: Ack{Block: 2}},
+	})
+
+	runTest(t, server, "timeout option", []testStep{
+		{Send: ReadRequest{Filename: "768", Mode: "octet", Options: map[string]string{
+			"timeout": "2"}}},
+		{Receive: OptionsAck{map[string]string{"timeout": "2"}}},
+		{Send: Ack{0}},
+		{Receive: Data{Block: 1, Data: data[0:512]}},
+		{Send: Ack{Block: 1}},
+		{Receive: Data{Block: 2, Data: data[512:768]}},
+		{Send: Ack{Block: 2}},
+	})
+
 }
