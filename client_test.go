@@ -185,4 +185,33 @@ func TestGetFile(t *testing.T) {
 			{Receive: Ack{Block: 3}},
 		})
 	})
+
+	t.Run("read with tsize option", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			var buffer bytes.Buffer
+			var config ClientConfig
+
+			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
+			if err != nil {
+				t.Errorf("GetFile failed: %v", err)
+				return
+			}
+			if buffer.Len() != 768 {
+				t.Error("Length does not match")
+				return
+			}
+			if !bytes.Equal(data[0:768], buffer.Bytes()) {
+				t.Error("Bytes read do not match")
+				return
+			}
+		}, []testStep{
+			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"tsize": "0"}}},
+			{Send: OptionsAck{Options: map[string]string{"tsize": "768"}}},
+			{Receive: Ack{Block: 0}},
+			{Send: Data{Block: 1, Data: data[0:512]}},
+			{Receive: Ack{Block: 1}},
+			{Send: Data{Block: 2, Data: data[512:768]}},
+			{Receive: Ack{Block: 2}},
+		})
+	})
 }
