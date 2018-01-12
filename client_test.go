@@ -7,7 +7,6 @@ import (
 	"net"
 	"testing"
 	"time"
-	"fmt"
 )
 
 func dummyServerLoop(ctx context.Context, t *testing.T, conn1 *PacketChan, conn2 *PacketChan, steps []testStep) {
@@ -15,7 +14,6 @@ func dummyServerLoop(ctx context.Context, t *testing.T, conn1 *PacketChan, conn2
 	gotFirstPacket := false
 
 	for _, step := range steps {
-		fmt.Printf("step: %v\n", step)
 		if step.Send != nil {
 			if clientAddr == nil {
 				t.Error("send configured before first receive")
@@ -85,7 +83,7 @@ func runClientTest(t *testing.T, f func(context.Context, net.Addr), steps []test
 		return
 	}
 
-	pchan1, err := NewPacketChan(conn1, 1, 1)
+	pchan1, err := NewPacketChan(conn1, 1, 2)
 	if err != nil {
 		t.Errorf("Unable to open socket: %v", err)
 		return
@@ -98,7 +96,7 @@ func runClientTest(t *testing.T, f func(context.Context, net.Addr), steps []test
 		return
 	}
 
-	pchan2, err := NewPacketChan(conn2, 1, 1)
+	pchan2, err := NewPacketChan(conn2, 1, 2)
 	if err != nil {
 		t.Errorf("Unable to open socket: %v", err)
 		return
@@ -114,7 +112,14 @@ func runClientTest(t *testing.T, f func(context.Context, net.Addr), steps []test
 
 	f(ctx, conn1.LocalAddr())
 
-	<-join
+	timeout := time.After(time.Duration(1500) * time.Millisecond)
+	select {
+	case <-join:
+		break
+
+	case <-timeout:
+		t.Error("Dummy server loop failed to exit")
+	}
 }
 
 func TestGetFile(t *testing.T) {
@@ -128,7 +133,7 @@ func TestGetFile(t *testing.T) {
 	t.Run("basic read request", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
-			config := ClientConfig{TracePackets: true, DisableOptions: true}
+			config := ClientConfig{DisableOptions: true}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
 			if err != nil {
@@ -155,7 +160,7 @@ func TestGetFile(t *testing.T) {
 	t.Run("block aligned read request", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
-			config := ClientConfig{TracePackets: true, DisableOptions: true}
+			config := ClientConfig{DisableOptions: true}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
 			if err != nil {

@@ -18,12 +18,10 @@ type testStep struct {
 	Receive packetMethods
 }
 
-func runTest(t *testing.T, server *Server, testName string, steps []testStep) {
+func runTest(t *testing.T, server *Server, steps []testStep) {
 	d, _ := time.ParseDuration("50ms")
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(d))
 	defer cancel()
-
-	fullTestName := "Test '" + testName + "'"
 
 	mainRemoteAddr := server.LocalAddr()
 	var remoteAddr net.Addr
@@ -31,13 +29,13 @@ func runTest(t *testing.T, server *Server, testName string, steps []testStep) {
 	// Create a local socket as the "client" for this test.
 	clientConn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
-		t.Errorf("%s: Unable to open socket: %v", fullTestName, err)
+		t.Errorf("Unable to open socket: %v", err)
 		return
 	}
 
 	clientPChan, err := NewPacketChan(clientConn, 1, 1)
 	if err != nil {
-		t.Errorf("%s: Unable to open socket: %v", fullTestName, err)
+		t.Errorf("Unable to open socket: %v", err)
 		return
 	}
 	defer clientPChan.Close()
@@ -63,13 +61,12 @@ func runTest(t *testing.T, server *Server, testName string, steps []testStep) {
 
 				packet, err := PacketFromBytes(actualBytes)
 				if err != nil {
-					t.Errorf("%s: Unable to decode packet: %v", fullTestName, err)
+					t.Errorf("Unable to decode packet: %v", err)
 					return
 				}
 
 				if !bytes.Equal(expectedBytes, actualBytes) {
-					t.Errorf("%s: packet mismatch: expected=[%s], actual=[%s]",
-						fullTestName, step.Receive, packet)
+					t.Errorf("packet mismatch: expected=[%s], actual=[%s]", step.Receive, packet)
 					return
 				}
 
@@ -111,86 +108,106 @@ func TestReadSupport(t *testing.T) {
 	}
 	defer server.Close()
 
-	runTest(t, server, "file not found", []testStep{
-		{Send: ReadRequest{Filename: "xyzzy", Mode: "octet"}},
-		{Receive: Error{Code: ERR_FILE_NOT_FOUND, Message: "File not found"}},
+	t.Run("file not found", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "xyzzy", Mode: "octet"}},
+			{Receive: Error{Code: ERR_FILE_NOT_FOUND, Message: "File not found"}},
+		})
 	})
 
-	runTest(t, server, "basic read", []testStep{
-		{Send: ReadRequest{Filename: "768", Mode: "octet"}},
-		{Receive: Data{Block: 1, Data: data[0:512]}},
-		{Send: Ack{Block: 1}},
-		{Receive: Data{Block: 2, Data: data[512:768]}},
-		{Send: Ack{Block: 2}},
+	t.Run("basic read request", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "768", Mode: "octet"}},
+			{Receive: Data{Block: 1, Data: data[0:512]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[512:768]}},
+			{Send: Ack{Block: 2}},
+		})
 	})
 
-	runTest(t, server, "block aligned read", []testStep{
-		{Send: ReadRequest{Filename: "1024", Mode: "octet"}},
-		{Receive: Data{Block: 1, Data: data[0:512]}},
-		{Send: Ack{Block: 1}},
-		{Receive: Data{Block: 2, Data: data[512:1024]}},
-		{Send: Ack{Block: 2}},
-		{Receive: Data{Block: 3, Data: []byte{}}},
-		{Send: Ack{Block: 3}},
+	t.Run("block aligned read", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "1024", Mode: "octet"}},
+			{Receive: Data{Block: 1, Data: data[0:512]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[512:1024]}},
+			{Send: Ack{Block: 2}},
+			{Receive: Data{Block: 3, Data: []byte{}}},
+			{Send: Ack{Block: 3}},
+		})
 	})
 
-	runTest(t, server, "blksize option rejected (too small)", []testStep{
-		{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
-			"blksize": strconv.Itoa(MIN_BLOCK_SIZE - 1)}}},
-		{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+	t.Run("blksize option rejected (too small)", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+				"blksize": strconv.Itoa(MIN_BLOCK_SIZE - 1)}}},
+			{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+		})
 	})
 
-	runTest(t, server, "blksize option rejected (not a number)", []testStep{
-		{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
-			"blksize": "xyzzy"}}},
-		{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+	t.Run("blksize option rejected (not a number)", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+				"blksize": "xyzzy"}}},
+			{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+		})
 	})
 
-	runTest(t, server, "too large blksize option clamped", []testStep{
-		{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
-			"blksize": strconv.Itoa(MAX_BLOCK_SIZE + 1)}}},
-		{Receive: OptionsAck{map[string]string{"blksize": strconv.Itoa(MAX_BLOCK_SIZE)}}},
-		{Send: Ack{0}},
-		{Receive: Data{Block: 1, Data: data[0:1024]}},
-		{Send: Ack{1}},
+	t.Run("too large blksize option clamped", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+				"blksize": strconv.Itoa(MAX_BLOCK_SIZE + 1)}}},
+			{Receive: OptionsAck{map[string]string{"blksize": strconv.Itoa(MAX_BLOCK_SIZE)}}},
+			{Send: Ack{0}},
+			{Receive: Data{Block: 1, Data: data[0:1024]}},
+			{Send: Ack{1}},
+		})
 	})
 
-	runTest(t, server, "larger blksize read", []testStep{
-		{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
-			"blksize": "768"}}},
-		{Receive: OptionsAck{map[string]string{"blksize": "768"}}},
-		{Send: Ack{0}},
-		{Receive: Data{Block: 1, Data: data[0:768]}},
-		{Send: Ack{1}},
-		{Receive: Data{Block: 2, Data: data[768:1024]}},
-		{Send: Ack{2}},
+	t.Run("larger blksize read", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+				"blksize": "768"}}},
+			{Receive: OptionsAck{map[string]string{"blksize": "768"}}},
+			{Send: Ack{0}},
+			{Receive: Data{Block: 1, Data: data[0:768]}},
+			{Send: Ack{1}},
+			{Receive: Data{Block: 2, Data: data[768:1024]}},
+			{Send: Ack{2}},
+		})
 	})
 
-	runTest(t, server, "tsize option", []testStep{
-		{Send: ReadRequest{Filename: "768", Mode: "octet", Options: map[string]string{
-			"tsize": "0"}}},
-		{Receive: OptionsAck{map[string]string{"tsize": "768"}}},
-		{Send: Ack{0}},
-		{Receive: Data{Block: 1, Data: data[0:512]}},
-		{Send: Ack{Block: 1}},
-		{Receive: Data{Block: 2, Data: data[512:768]}},
-		{Send: Ack{Block: 2}},
+	t.Run("tsize option", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "768", Mode: "octet", Options: map[string]string{
+				"tsize": "0"}}},
+			{Receive: OptionsAck{map[string]string{"tsize": "768"}}},
+			{Send: Ack{0}},
+			{Receive: Data{Block: 1, Data: data[0:512]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[512:768]}},
+			{Send: Ack{Block: 2}},
+		})
 	})
 
-	runTest(t, server, "timeout option", []testStep{
-		{Send: ReadRequest{Filename: "768", Mode: "octet", Options: map[string]string{
-			"timeout": "2"}}},
-		{Receive: OptionsAck{map[string]string{"timeout": "2"}}},
-		{Send: Ack{0}},
-		{Receive: Data{Block: 1, Data: data[0:512]}},
-		{Send: Ack{Block: 1}},
-		{Receive: Data{Block: 2, Data: data[512:768]}},
-		{Send: Ack{Block: 2}},
+	t.Run("timeout option", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "768", Mode: "octet", Options: map[string]string{
+				"timeout": "2"}}},
+			{Receive: OptionsAck{map[string]string{"timeout": "2"}}},
+			{Send: Ack{0}},
+			{Receive: Data{Block: 1, Data: data[0:512]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[512:768]}},
+			{Send: Ack{Block: 2}},
+		})
 	})
 
-	runTest(t, server, "no write support", []testStep{
-		{Send: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
-		{Receive: Error{Code: ERR_ILLEGAL_OPERATION, Message: "Write requests are not supported."}},
+	t.Run("no write support", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
+			{Receive: Error{Code: ERR_ILLEGAL_OPERATION, Message: "Write requests are not supported."}},
+		})
 	})
 }
 
@@ -236,75 +253,92 @@ func TestWriteSupport(t *testing.T) {
 	}
 	defer server.Close()
 
-	runTest(t, server, "file already exists", []testStep{
-		{Send: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
-		{Receive: Error{Code: ERR_FILE_EXISTS, Message: "File already exists"}},
+	t.Run("file already exists", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
+			{Receive: Error{Code: ERR_FILE_EXISTS, Message: "File already exists"}},
+		})
 	})
 
-	runTest(t, server, "basic write", []testStep{
-		{Send: WriteRequest{Filename: "768", Mode: "octet"}},
-		{Receive: Ack{Block: 0}},
-		{Send: Data{Block: 1, Data: data[0:512]}},
-		{Receive: Ack{Block: 1}},
-		{Send: Data{Block: 2, Data: data[512:768]}},
-		{Receive: Ack{Block: 2}},
-	})
-	if !bytes.Equal(data[0:768], buffer.Bytes()) {
-		t.Errorf("Test 'basic write': Written results do not match.")
-	}
-
-	runTest(t, server, "block aligned write", []testStep{
-		{Send: WriteRequest{Filename: "1024", Mode: "octet"}},
-		{Receive: Ack{Block: 0}},
-		{Send: Data{Block: 1, Data: data[0:512]}},
-		{Receive: Ack{Block: 1}},
-		{Send: Data{Block: 2, Data: data[512:1024]}},
-		{Receive: Ack{Block: 2}},
-		{Send: Data{Block: 3, Data: []byte{}}},
-		{Receive: Ack{Block: 3}},
-	})
-	if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-		t.Errorf("Test 'block aligned write': Written results do not match.")
-	}
-
-	runTest(t, server, "blksize option rejected (too small)", []testStep{
-		{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
-			"blksize": strconv.Itoa(MIN_BLOCK_SIZE - 1)}}},
-		{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+	t.Run("basic write", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: WriteRequest{Filename: "768", Mode: "octet"}},
+			{Receive: Ack{Block: 0}},
+			{Send: Data{Block: 1, Data: data[0:512]}},
+			{Receive: Ack{Block: 1}},
+			{Send: Data{Block: 2, Data: data[512:768]}},
+			{Receive: Ack{Block: 2}},
+		})
+		if !bytes.Equal(data[0:768], buffer.Bytes()) {
+			t.Errorf("Results do not match")
+		}
 	})
 
-	runTest(t, server, "blksize option rejected (not a number)", []testStep{
-		{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
-			"blksize": "xyzzy"}}},
-		{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+	t.Run("block aligned write", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: WriteRequest{Filename: "1024", Mode: "octet"}},
+			{Receive: Ack{Block: 0}},
+			{Send: Data{Block: 1, Data: data[0:512]}},
+			{Receive: Ack{Block: 1}},
+			{Send: Data{Block: 2, Data: data[512:1024]}},
+			{Receive: Ack{Block: 2}},
+			{Send: Data{Block: 3, Data: []byte{}}},
+			{Receive: Ack{Block: 3}},
+		})
+		if !bytes.Equal(data[0:1024], buffer.Bytes()) {
+			t.Errorf("Results do not match")
+		}
 	})
 
-	runTest(t, server, "too large blksize option clamped", []testStep{
-		{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
-			"blksize": strconv.Itoa(MAX_BLOCK_SIZE + 1)}}},
-		{Receive: OptionsAck{map[string]string{"blksize": strconv.Itoa(MAX_BLOCK_SIZE)}}},
-		{Send: Data{Block: 1, Data: data[0:1024]}},
-		{Receive: Ack{1}},
+	t.Run("blksize option rejected (too small)", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+				"blksize": strconv.Itoa(MIN_BLOCK_SIZE - 1)}}},
+			{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+		})
 	})
-	if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-		t.Errorf("Test 'too large blksize option clamped': Written results do not match.")
-	}
 
-	runTest(t, server, "larger blksize write", []testStep{
-		{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
-			"blksize": "768"}}},
-		{Receive: OptionsAck{map[string]string{"blksize": "768"}}},
-		{Send: Data{Block: 1, Data: data[0:768]}},
-		{Receive: Ack{1}},
-		{Send: Data{Block: 2, Data: data[768:1024]}},
-		{Receive: Ack{2}},
+	t.Run("blksize option rejected (not a number)", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+				"blksize": "xyzzy"}}},
+			{Receive: Error{Code: 8, Message: "Invalid blksize option"}},
+		})
 	})
-	if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-		t.Errorf("Test 'larger blksize write': Written results do not match.")
-	}
 
-	runTest(t, server, "no read support", []testStep{
-		{Send: ReadRequest{Filename: "xyzzy", Mode: "octet"}},
-		{Receive: Error{Code: ERR_FILE_NOT_FOUND, Message: "File not found"}},
+	t.Run("too large blksize option clamped", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+				"blksize": strconv.Itoa(MAX_BLOCK_SIZE + 1)}}},
+			{Receive: OptionsAck{map[string]string{"blksize": strconv.Itoa(MAX_BLOCK_SIZE)}}},
+			{Send: Data{Block: 1, Data: data[0:1024]}},
+			{Receive: Ack{1}},
+		})
+		if !bytes.Equal(data[0:1024], buffer.Bytes()) {
+			t.Errorf("Results do not match")
+		}
+	})
+
+	t.Run("larger blksize write", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: WriteRequest{Filename: "1024", Mode: "octet", Options: map[string]string{
+				"blksize": "768"}}},
+			{Receive: OptionsAck{map[string]string{"blksize": "768"}}},
+			{Send: Data{Block: 1, Data: data[0:768]}},
+			{Receive: Ack{1}},
+			{Send: Data{Block: 2, Data: data[768:1024]}},
+			{Receive: Ack{2}},
+		})
+		if !bytes.Equal(data[0:1024], buffer.Bytes()) {
+			t.Errorf("Results do not match")
+		}
+	})
+
+	t.Run("no read support", func(t *testing.T) {
+		runTest(t, server, []testStep{
+			{Send: ReadRequest{Filename: "xyzzy", Mode: "octet"}},
+			{Receive: Error{Code: ERR_FILE_NOT_FOUND, Message: "File not found"}},
+		})
+
 	})
 }
