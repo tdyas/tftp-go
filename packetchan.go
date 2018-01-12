@@ -6,6 +6,8 @@ import (
 )
 
 // This file wraps a net.PacketConn with channels.
+// TODO: Figure out what to do if receives or sends fail. Might be better for users of PacketChan
+//       to assume that they must retransmit.
 
 type Packet struct {
 	Data []byte
@@ -33,6 +35,8 @@ func receiveLoop(conn net.PacketConn, packets chan<- Packet, closed *int32) {
 
 		packets <- Packet{Data: buffer[0:n], Addr: remoteAddr}
 	}
+
+	close(packets)
 }
 
 func sendLoop(conn net.PacketConn, packets <-chan Packet, closed *int32) {
