@@ -40,9 +40,7 @@ func receiveLoop(conn net.PacketConn, packets chan<- Packet, closed *int32) {
 }
 
 func sendLoop(conn net.PacketConn, packets <-chan Packet, closed *int32) {
-	for {
-		packet := <-packets
-
+	for packet := range packets {
 		_, err := conn.WriteTo(packet.Data, packet.Addr)
 		if err != nil {
 			if atomic.LoadInt32(closed) != 0 {
