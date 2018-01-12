@@ -18,7 +18,7 @@ type testStep struct {
 	Receive packetMethods
 }
 
-func runTest(t *testing.T, server *Server, steps []testStep) {
+func runTest(t *testing.T, server *Server, steps []testStep)  {
 	d, _ := time.ParseDuration("50ms")
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(d))
 	defer cancel()
@@ -270,7 +270,7 @@ func TestWriteSupport(t *testing.T) {
 			{Receive: Ack{Block: 2}},
 		})
 		if !bytes.Equal(data[0:768], buffer.Bytes()) {
-			t.Errorf("Results do not match")
+			t.Error("Results do not match")
 		}
 	})
 
@@ -286,7 +286,7 @@ func TestWriteSupport(t *testing.T) {
 			{Receive: Ack{Block: 3}},
 		})
 		if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-			t.Errorf("Results do not match")
+			t.Error("Results do not match")
 		}
 	})
 

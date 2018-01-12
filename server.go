@@ -48,7 +48,7 @@ type ServerConfig struct {
 
 type Server struct {
 	config *ServerConfig
-	conn   net.PacketConn
+	conn   *PacketChan
 	log    *log.Logger
 	done   chan bool
 }
@@ -461,29 +461,32 @@ dataBlockLoop:
 	}
 }
 
-func (server *Server) handleRequest(requestBytes []byte, remoteAddr net.Addr) {
+func (server *Server) handleRequest(parentCtx context.Context, requestBytes []byte, remoteAddr net.Addr) {
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
+
 	rawRequest, err := PacketFromBytes(requestBytes)
 	if err != nil {
-		log.Printf("Malformed packet. Ignoring.")
+		server.log.Printf("Malformed packet. Ignoring.")
 		return
 	}
 
 	// Bind a new socket for the reply.
 	replyConn, err := net.ListenPacket("udp", ":0")
 	if err != nil {
-		log.Printf("Could not create reply socket: %v", err)
+		server.log.Printf("Could not create reply socket: %v", err)
 		return
 	}
 
 	pchan, err := NewPacketChan(replyConn, 1, 2)
 	if err != nil {
-		log.Printf("Could not create reply socket: %v", err)
+		server.log.Printf("Could not create reply socket: %v", err)
 		return
 	}
 	defer pchan.Close()
 
 	state := connectionState{
-		ctx:          context.TODO(),
+		ctx:          ctx,
 		logger:       server.log,
 		conn:         pchan,
 		remoteAddr:   remoteAddr,
@@ -500,23 +503,21 @@ func (server *Server) handleRequest(requestBytes []byte, remoteAddr net.Addr) {
 		server.handleWRQ(&state, &request, replyConn, remoteAddr)
 
 	default:
-		log.Printf("Non-RRQ/WRQ request from %v: %#v (%T)", remoteAddr, request, request)
+		state.log("Non-RRQ/WRQ request from %v: %#v (%T)", remoteAddr, request, request)
 		reply := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal TFTP operation"}
-		replyConn.WriteTo(reply.ToBytes(), remoteAddr)
+		pchan.Outgoing <- Packet{reply.ToBytes(), remoteAddr}
 	}
 }
 
-func (server *Server) mainServerLoop() {
-	buffer := make([]byte, 65535)
-
+func (server *Server) mainServerLoop(ctx context.Context) {
 	for {
-		n, remoteAddr, err := server.conn.ReadFrom(buffer)
-		if err != nil {
-			server.log.Printf("Unable to read from socket: %v", err)
-			break
-		}
+		select {
+		case packet := <-server.conn.Incoming:
+			go server.handleRequest(ctx, packet.Data, packet.Addr)
 
-		go server.handleRequest(buffer[0:n], remoteAddr)
+		case <-ctx.Done():
+			return
+		}
 	}
 
 	server.done <- true
@@ -563,6 +564,10 @@ func validateServerConfig(userConfig *ServerConfig) (*ServerConfig, error) {
 }
 
 func NewServer(address string, config *ServerConfig) (*Server, error) {
+	return NewServerContext(context.Background(), address, config)
+}
+
+func NewServerContext(ctx context.Context, address string, config *ServerConfig) (*Server, error) {
 	config, err := validateServerConfig(config)
 	if err != nil {
 		return nil, err
@@ -573,14 +578,19 @@ func NewServer(address string, config *ServerConfig) (*Server, error) {
 		return nil, err
 	}
 
+	pchan, err := NewPacketChan(conn, 1, 1)
+	if err != nil {
+		return nil, err
+	}
+
 	server := Server{
 		config: config,
-		conn:   conn,
+		conn:   pchan,
 		log:    config.Logger,
 		done:   make(chan bool, 1),
 	}
 
-	go server.mainServerLoop()
+	go server.mainServerLoop(ctx)
 
 	return &server, nil
 }
