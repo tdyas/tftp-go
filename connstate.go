@@ -67,7 +67,9 @@ func (state *connectionState) send(packet packetMethods) {
 		}
 	}
 
-	state.conn.Outgoing <- Packet{Data: packet.ToBytes(), Addr: remoteAddr}
+	sent := make(chan error)
+	state.conn.Outgoing <- Packet{Data: packet.ToBytes(), Addr: remoteAddr, Sent: sent}
+	<-sent
 }
 
 func (state *connectionState) receive() (interface{}, error) {
@@ -85,7 +87,7 @@ receiveLoop:
 					// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
 					// disturbing the transfer."
 					errorPacket := Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"}
-					state.conn.Outgoing <- Packet{errorPacket.ToBytes(), packet.Addr}
+					state.conn.Outgoing <- Packet{errorPacket.ToBytes(), packet.Addr, nil}
 					continue receiveLoop
 				}
 			} else {

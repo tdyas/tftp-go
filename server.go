@@ -505,7 +505,9 @@ func (server *Server) handleRequest(parentCtx context.Context, requestBytes []by
 	default:
 		state.log("Non-RRQ/WRQ request from %v: %#v (%T)", remoteAddr, request, request)
 		reply := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal TFTP operation"}
-		pchan.Outgoing <- Packet{reply.ToBytes(), remoteAddr}
+		sent := make(chan error)
+		pchan.Outgoing <- Packet{reply.ToBytes(), remoteAddr, sent}
+		<-sent
 	}
 }
 

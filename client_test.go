@@ -29,7 +29,18 @@ func dummyServerLoop(ctx context.Context, t *testing.T, conn1 *PacketChan, conn2
 				t.Error("send configured before first receive")
 				return
 			}
-			conn2.Outgoing <- Packet{step.Send.ToBytes(), clientAddr}
+			sent := make(chan error)
+			conn2.Outgoing <- Packet{step.Send.ToBytes(), clientAddr, sent}
+
+			select {
+			case err := <-sent:
+				if err != nil {
+					t.Errorf("send failed for packet %v: %v", step.Send, err)
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		} else if step.Receive != nil {
 			select {
 			case rawPacket := <-conn1.Incoming:

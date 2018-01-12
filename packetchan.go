@@ -12,6 +12,7 @@ import (
 type Packet struct {
 	Data []byte
 	Addr net.Addr
+	Sent chan error
 }
 
 type PacketChan struct {
@@ -42,6 +43,10 @@ func receiveLoop(conn net.PacketConn, packets chan<- Packet, closed *int32) {
 func sendLoop(conn net.PacketConn, packets <-chan Packet, closed *int32) {
 	for packet := range packets {
 		_, err := conn.WriteTo(packet.Data, packet.Addr)
+		if packet.Sent != nil {
+			packet.Sent <- err
+		}
+
 		if err != nil {
 			if atomic.LoadInt32(closed) != 0 {
 				break
@@ -71,6 +76,8 @@ func (self *PacketChan) LocalAddr() net.Addr {
 }
 
 func (self *PacketChan) Close() error {
-	atomic.StoreInt32(&self.closed, 1)
-	return self.conn.Close()
+	if atomic.CompareAndSwapInt32(&self.closed, 0, 1) {
+		return self.conn.Close()
+	}
+	return nil
 }
