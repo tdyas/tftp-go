@@ -481,7 +481,7 @@ func (server *Server) handleRequest(requestBytes []byte, remoteAddr net.Addr) {
 
 	state := connectionState{
 		buffer:       make([]byte, 65535),
-		log:          server.log,
+		logger:       server.log,
 		conn:         replyConn,
 		remoteAddr:   remoteAddr,
 		blockSize:    DEFAULT_BLOCKSIZE,

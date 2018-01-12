@@ -20,7 +20,12 @@ func (e *TftpRemoteError) Error() string {
 	return e.Message
 }
 
-func GetFile(address string, filename string, mode string, options int, writer io.Writer) error {
+type ClientConfig struct {
+	DisableOptions bool
+	TracePackets   bool
+}
+
+func GetFile(address string, filename string, mode string, config *ClientConfig, writer io.Writer) error {
 	// Bind a random but specific local socket for this request.
 	mainRemoteAddr, err := net.ResolveUDPAddr("udp", address)
 	if err != nil {
@@ -35,12 +40,12 @@ func GetFile(address string, filename string, mode string, options int, writer i
 
 	state := connectionState{
 		buffer:         make([]byte, 65535),
-		log:            log.New(os.Stderr, "TFTP: ", log.LstdFlags),
+		logger:         log.New(os.Stderr, "TFTP: ", log.LstdFlags),
 		conn:           conn,
 		mainRemoteAddr: mainRemoteAddr,
 		blockSize:      DEFAULT_BLOCKSIZE,
 		timeout:        5,
-		tracePackets:   true,
+		tracePackets:   config.TracePackets,
 	}
 
 	enableTransferSizeOption := true
@@ -53,11 +58,13 @@ func GetFile(address string, filename string, mode string, options int, writer i
 		Mode:     mode,
 		Options:  make(map[string]string),
 	}
-	if enableTransferSizeOption {
-		rrq.Options["tsize"] = "0"
-	}
-	if enableBlockSizeOption {
-		rrq.Options["blksize"] = strconv.Itoa(requestedBlockSize)
+	if !config.DisableOptions {
+		if enableTransferSizeOption {
+			rrq.Options["tsize"] = "0"
+		}
+		if enableBlockSizeOption {
+			rrq.Options["blksize"] = strconv.Itoa(requestedBlockSize)
+		}
 	}
 
 	var currentBlockNum uint16 = 1

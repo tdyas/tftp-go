@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
 type connectionState struct {
 	buffer         []byte
-	log            *log.Logger
+	loggerLock     sync.Mutex
+	logger         *log.Logger
 	conn           net.PacketConn
 	mainRemoteAddr net.Addr
 	remoteAddr     net.Addr
@@ -23,9 +25,32 @@ type packetMethods interface {
 	ToBytes() []byte
 }
 
+func (state *connectionState) addrsString() string {
+	r := state.conn.LocalAddr().String()
+	r += "<->"
+
+	if state.mainRemoteAddr != nil && state.remoteAddr != nil {
+		r += fmt.Sprintf("(%s,%s)", state.mainRemoteAddr.String(), state.remoteAddr.String())
+	} else if state.mainRemoteAddr != nil {
+		r += state.mainRemoteAddr.String()
+	} else if state.remoteAddr != nil {
+		r += state.remoteAddr.String()
+	} else {
+		r += "???"
+	}
+
+	return r
+}
+
+func (state *connectionState) log(format string, v ...interface{}) string {
+	state.loggerLock.Lock()
+	defer state.loggerLock.Unlock()
+	return fmt.Sprintf("%s: %s", state.addrsString(), fmt.Sprintf(format, v))
+}
+
 func (state *connectionState) send(packet packetMethods) (n int, err error) {
 	if state.tracePackets {
-		state.log.Printf("sending %s", packet.String())
+		state.log("sending %s", packet.String())
 	}
 
 	remoteAddr := state.remoteAddr
@@ -50,7 +75,7 @@ func (state *connectionState) receive() (interface{}, error) {
 	// RFC 1350: "If a source TID does not match, the packet should be discarded as erroneously sent from
 	// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
 	// disturbing the transfer."
-	state.log.Printf("remoteAddr=%v, state.remoteAddr=%v, state.mainRemoteAddr",
+	state.log("remoteAddr=%v, state.remoteAddr=%v, state.mainRemoteAddr",
 		remoteAddr, state.remoteAddr, state.mainRemoteAddr)
 	if state.remoteAddr != nil {
 		if state.remoteAddr.String() != remoteAddr.String() {
@@ -61,7 +86,7 @@ func (state *connectionState) receive() (interface{}, error) {
 	} else {
 		if state.mainRemoteAddr != nil && remoteAddr.String() != state.mainRemoteAddr.String() {
 			state.remoteAddr = remoteAddr
-			state.log.Printf("remote address: %v", remoteAddr)
+			state.log("remote address: %v", remoteAddr)
 		}
 	}
 
@@ -71,7 +96,7 @@ func (state *connectionState) receive() (interface{}, error) {
 	}
 
 	if state.tracePackets {
-		state.log.Printf("received %s", packet.(packetMethods).String())
+		state.log("received %s", packet.(packetMethods).String())
 	}
 
 	return packet, nil
