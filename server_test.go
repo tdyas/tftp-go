@@ -51,7 +51,6 @@ func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 			sent := make(chan error)
 			client.Outgoing <- Packet{step.Send.ToBytes(), sendAddr, sent}
 			select {
-
 			case err := <-sent:
 				if err != nil {
 					t.Errorf("send failed for packet %v: %v", step.Send, err)
