@@ -246,7 +246,7 @@ func TestGetFile(t *testing.T) {
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
 			if err != TransferSizeError {
-				t.Errorf("GetFile failed unexpetedly: %v", err)
+				t.Errorf("GetFile failed unexpectedly: %v", err)
 				return
 			} else if err == nil {
 				t.Error("GetFile should not have succeeded")
