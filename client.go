@@ -1,6 +1,7 @@
 package tftp
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log"
@@ -25,7 +26,19 @@ type ClientConfig struct {
 	TracePackets   bool
 }
 
-func GetFile(address string, filename string, mode string, config *ClientConfig, writer io.Writer) error {
+func GetFile(
+	parentCtx context.Context,
+	address string,
+	filename string,
+	mode string,
+	config *ClientConfig,
+	writer io.Writer) error {
+
+	// Create a context to bind all of this client's goroutines together. The context will
+	// be cacelled automatically when this function returns.
+	ctx, cancelFunc := context.WithCancel(parentCtx)
+	defer cancelFunc()
+
 	// Bind a random but specific local socket for this request.
 	mainRemoteAddr, err := net.ResolveUDPAddr("udp", address)
 	if err != nil {
@@ -36,12 +49,17 @@ func GetFile(address string, filename string, mode string, config *ClientConfig,
 		log.Printf("Could not create socket: %v", err)
 		return err
 	}
-	defer conn.Close()
+	pchan, err := NewPacketChan(conn, 1, 1)
+	if err != nil {
+		log.Printf("Could not create socket: %v", err)
+		return err
+	}
+	defer pchan.Close()
 
 	state := connectionState{
-		buffer:         make([]byte, 65535),
+		ctx:            ctx,
 		logger:         log.New(os.Stderr, "TFTP: ", log.LstdFlags),
-		conn:           conn,
+		conn:           pchan,
 		mainRemoteAddr: mainRemoteAddr,
 		blockSize:      DEFAULT_BLOCKSIZE,
 		timeout:        5,

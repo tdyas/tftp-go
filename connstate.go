@@ -4,15 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"sync"
 	"time"
+	"context"
 )
 
 type connectionState struct {
-	buffer         []byte
-	loggerLock     sync.Mutex
+	ctx            context.Context
 	logger         *log.Logger
-	conn           net.PacketConn
+	conn           *PacketChan
 	mainRemoteAddr net.Addr
 	remoteAddr     net.Addr
 	blockSize      uint16
@@ -24,6 +23,14 @@ type packetMethods interface {
 	fmt.Stringer
 	ToBytes() []byte
 }
+
+type timeoutError int
+
+var errTimedOut = timeoutError(0)
+
+func (e timeoutError) Error() string   { return "timed out" }
+func (e timeoutError) Timeout() bool   { return true }
+func (e timeoutError) Temporary() bool { return true }
 
 func (state *connectionState) addrsString() string {
 	r := state.conn.LocalAddr().String()
@@ -42,13 +49,12 @@ func (state *connectionState) addrsString() string {
 	return r
 }
 
-func (state *connectionState) log(format string, v ...interface{}) string {
-	state.loggerLock.Lock()
-	defer state.loggerLock.Unlock()
-	return fmt.Sprintf("%s: %s", state.addrsString(), fmt.Sprintf(format, v))
+func (state *connectionState) log(format string, v ...interface{}) {
+	msg := fmt.Sprintf("%s: %s", state.addrsString(), fmt.Sprintf(format, v))
+	state.logger.Println(msg)
 }
 
-func (state *connectionState) send(packet packetMethods) (n int, err error) {
+func (state *connectionState) send(packet packetMethods) {
 	if state.tracePackets {
 		state.log("sending %s", packet.String())
 	}
@@ -61,43 +67,51 @@ func (state *connectionState) send(packet packetMethods) (n int, err error) {
 		}
 	}
 
-	return state.conn.WriteTo(packet.ToBytes(), remoteAddr)
+	state.conn.Outgoing <- Packet{Data: packet.ToBytes(), Addr: remoteAddr}
 }
 
 func (state *connectionState) receive() (interface{}, error) {
-	state.conn.SetReadDeadline(time.Now().Add(time.Duration(state.timeout) * time.Second))
-	n, remoteAddr, err := state.conn.ReadFrom(state.buffer)
-	if err != nil {
-		return nil, err
-	}
+receiveLoop:
+	for {
+		timeout := time.After(time.Duration(state.timeout) * time.Second)
 
-	// Ensure that the sender of this packet matches the expected address.
-	// RFC 1350: "If a source TID does not match, the packet should be discarded as erroneously sent from
-	// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
-	// disturbing the transfer."
-	state.log("remoteAddr=%v, state.remoteAddr=%v, state.mainRemoteAddr",
-		remoteAddr, state.remoteAddr, state.mainRemoteAddr)
-	if state.remoteAddr != nil {
-		if state.remoteAddr.String() != remoteAddr.String() {
-			errorPacket := Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"}
-			state.conn.WriteTo(errorPacket.ToBytes(), remoteAddr)
-			return state.receive()
+		select {
+		case packet := <-state.conn.Incoming:
+			// Ensure that this packet's remote address matches the expected address if we know the address
+			// in use by the remote peer.
+			if state.remoteAddr != nil {
+				if state.remoteAddr.String() != packet.Addr.String() {
+					// RFC 1350: "If a source TID does not match, the packet should be discarded as erroneously sent from
+					// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
+					// disturbing the transfer."
+					errorPacket := Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"}
+					state.conn.Outgoing <- Packet{errorPacket.ToBytes(), packet.Addr}
+					continue receiveLoop
+				}
+			} else {
+				// Record the peer's address as the expected address if and only if there is a separate
+				// "main" remote address in use and this packet's address differs from that main address.
+				if state.mainRemoteAddr != nil && packet.Addr.String() != state.mainRemoteAddr.String() {
+					state.remoteAddr = packet.Addr
+				}
+			}
+
+			tftpPacket, err := PacketFromBytes(packet.Data)
+			if err != nil {
+				return nil, err
+			}
+
+			if state.tracePackets {
+				state.log("received %s", tftpPacket.(packetMethods).String())
+			}
+
+			return tftpPacket, nil
+
+		case <-timeout:
+			return nil, &errTimedOut
+
+		case <-state.ctx.Done():
+			return nil, state.ctx.Err()
 		}
-	} else {
-		if state.mainRemoteAddr != nil && remoteAddr.String() != state.mainRemoteAddr.String() {
-			state.remoteAddr = remoteAddr
-			state.log("remote address: %v", remoteAddr)
-		}
 	}
-
-	packet, err := PacketFromBytes(state.buffer[0:n])
-	if err != nil {
-		return nil, err
-	}
-
-	if state.tracePackets {
-		state.log("received %s", packet.(packetMethods).String())
-	}
-
-	return packet, nil
 }

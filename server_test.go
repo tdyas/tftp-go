@@ -2,14 +2,15 @@ package tftp
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
 	"strconv"
-	"time"
 	"testing"
 	"log"
+	"time"
 )
 
 type testStep struct {
@@ -18,8 +19,11 @@ type testStep struct {
 }
 
 func runTest(t *testing.T, server *Server, testName string, steps []testStep) {
+	d, _ := time.ParseDuration("50ms")
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(d))
+	defer cancel()
+
 	fullTestName := "Test '" + testName + "'"
-	buffer := make([]byte, 65535)
 
 	mainRemoteAddr := server.LocalAddr()
 	var remoteAddr net.Addr
@@ -30,7 +34,13 @@ func runTest(t *testing.T, server *Server, testName string, steps []testStep) {
 		t.Errorf("%s: Unable to open socket: %v", fullTestName, err)
 		return
 	}
-	defer clientConn.Close()
+
+	clientPChan, err := NewPacketChan(clientConn, 1, 1)
+	if err != nil {
+		t.Errorf("%s: Unable to open socket: %v", fullTestName, err)
+		return
+	}
+	defer clientPChan.Close()
 
 	// Loop through the test steps and drive the server.
 	for _, step := range steps {
@@ -40,36 +50,30 @@ func runTest(t *testing.T, server *Server, testName string, steps []testStep) {
 				sendAddr = mainRemoteAddr
 			}
 
-			_, err := clientConn.WriteTo(step.Send.ToBytes(), sendAddr)
-			if err != nil {
-				t.Errorf("%s: Unable to write to socket: %v", fullTestName, err)
-				return
-			}
+			clientPChan.Outgoing <- Packet{step.Send.ToBytes(), sendAddr}
 		} else if step.Receive != nil {
-			clientConn.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+			select {
+			case rawPacket := <-clientPChan.Incoming:
+				if remoteAddr == nil {
+					remoteAddr = rawPacket.Addr
+				}
 
-			n, thisRemoteAddr, err := clientConn.ReadFrom(buffer)
-			if err != nil {
-				t.Errorf("%s: Unable to read from socket: %v", fullTestName, err)
-				return
-			}
+				expectedBytes := step.Receive.ToBytes()
+				actualBytes := rawPacket.Data
 
-			if remoteAddr == nil {
-				remoteAddr = thisRemoteAddr
-			}
+				packet, err := PacketFromBytes(actualBytes)
+				if err != nil {
+					t.Errorf("%s: Unable to decode packet: %v", fullTestName, err)
+					return
+				}
 
-			expectedBytes := step.Receive.ToBytes()
-			actualBytes := buffer[0:n]
+				if !bytes.Equal(expectedBytes, actualBytes) {
+					t.Errorf("%s: packet mismatch: expected=[%s], actual=[%s]",
+						fullTestName, step.Receive, packet)
+					return
+				}
 
-			packet, err := PacketFromBytes(actualBytes)
-			if err != nil {
-				t.Errorf("%s: Unable to decode packet: %v", fullTestName, err)
-				return
-			}
-
-			if !bytes.Equal(expectedBytes, actualBytes) {
-				t.Errorf("%s: packet mismatch: expected=[%s], actual=[%s]",
-					fullTestName, step.Receive, packet)
+			case <-ctx.Done():
 				return
 			}
 		}

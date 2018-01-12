@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"context"
 )
 
 var RootMustBeAADirectoryError = errors.New("the TFTP root must be a directory")
@@ -206,11 +207,7 @@ fileSend:
 
 	dataSend:
 		for {
-			_, err := state.send(&dataPacket)
-			if err != nil {
-				server.log.Printf("Failed to send DATA: err=%v", n, err)
-				return
-			}
+			state.send(&dataPacket)
 
 			rawPacket, err := state.receive()
 			if err != nil {
@@ -477,12 +474,18 @@ func (server *Server) handleRequest(requestBytes []byte, remoteAddr net.Addr) {
 		log.Printf("Could not create reply socket: %v", err)
 		return
 	}
-	defer replyConn.Close()
+
+	pchan, err := NewPacketChan(replyConn, 1, 2)
+	if err != nil {
+		log.Printf("Could not create reply socket: %v", err)
+		return
+	}
+	defer pchan.Close()
 
 	state := connectionState{
-		buffer:       make([]byte, 65535),
+		ctx:          context.TODO(),
 		logger:       server.log,
-		conn:         replyConn,
+		conn:         pchan,
 		remoteAddr:   remoteAddr,
 		blockSize:    DEFAULT_BLOCKSIZE,
 		timeout:      5,
