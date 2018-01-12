@@ -50,7 +50,7 @@ func (state *connectionState) addrsString() string {
 }
 
 func (state *connectionState) log(format string, v ...interface{}) {
-	msg := fmt.Sprintf("%s: %s", state.addrsString(), fmt.Sprintf(format, v))
+	msg := fmt.Sprintf("%s: %s", state.addrsString(), fmt.Sprintf(format, v...))
 	state.logger.Println(msg)
 }
 

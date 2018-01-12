@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
-	"os"
 	"strconv"
 )
 
 var TftpProtocolViolation = errors.New("TFTP protocol violation")
+var TransferSizeError = errors.New("the actual number of bytes != the expected number of bytes")
 
 type TftpRemoteError struct {
 	Code    int
@@ -24,6 +25,15 @@ func (e *TftpRemoteError) Error() string {
 type ClientConfig struct {
 	DisableOptions bool
 	TracePackets   bool
+	Logger         *log.Logger
+}
+
+func validateClientConfig(userConfig *ClientConfig) (*ClientConfig, error) {
+	var config = *userConfig
+	if config.Logger == nil {
+		config.Logger = log.New(ioutil.Discard, "", 0)
+	}
+	return &config, nil
 }
 
 func GetFile(
@@ -33,6 +43,12 @@ func GetFile(
 	mode string,
 	config *ClientConfig,
 	writer io.Writer) error {
+
+	// Validate the configuration.
+	config, err := validateClientConfig(config)
+	if err != nil {
+		return err
+	}
 
 	// Create a context to bind all of this client's goroutines together. The context will
 	// be cacelled automatically when this function returns.
@@ -58,7 +74,7 @@ func GetFile(
 
 	state := connectionState{
 		ctx:            ctx,
-		logger:         log.New(os.Stderr, "TFTP: ", log.LstdFlags),
+		logger:         config.Logger,
 		conn:           pchan,
 		mainRemoteAddr: mainRemoteAddr,
 		blockSize:      DEFAULT_BLOCKSIZE,
@@ -87,7 +103,8 @@ func GetFile(
 
 	var currentBlockNum uint16 = 1
 	var currentDataPacket *Data = nil
-	var actualTransferSize = 0
+	var actualTransferSize uint64 = 0
+	var expectedTransferSize uint64 = 0
 
 rrqLoop:
 	for {
@@ -106,7 +123,7 @@ rrqLoop:
 		switch packet := rawPacket.(type) {
 		case Data:
 			if len(rrq.Options) > 0 {
-				log.Printf("TFTP server %v does not support custom options.", mainRemoteAddr)
+				state.log("TFTP server %v does not support custom options.", mainRemoteAddr)
 			}
 			if packet.Block != currentBlockNum {
 				log.Printf("TFTP server sent unexpected block number.")
@@ -115,7 +132,7 @@ rrqLoop:
 			}
 			currentDataPacket = &packet
 			writer.Write(packet.Data)
-			actualTransferSize += len(packet.Data)
+			actualTransferSize += uint64(len(packet.Data))
 			break rrqLoop
 
 		case OptionsAck:
@@ -124,15 +141,15 @@ rrqLoop:
 				accetpedBlockSize, err := strconv.Atoi(value)
 				if err == nil {
 					// TODO: validate the accepted blocksize
-					log.Printf("using block size = %v", accetpedBlockSize)
+					state.log("using block size = %v", accetpedBlockSize)
 					state.blockSize = uint16(accetpedBlockSize)
 				}
 			}
 			if value, ok := packet.Options["tsize"]; ok {
-				expectedTransferSize, err := strconv.Atoi(value)
+				s, err := strconv.Atoi(value)
 				if err == nil {
-					log.Printf("expected transfer size = %v", expectedTransferSize)
-					//state.expectedTransferSize = expectedTransferSize
+					expectedTransferSize = uint64(s)
+					state.log("expected transfer size: %d", expectedTransferSize)
 				}
 			}
 
@@ -142,13 +159,13 @@ rrqLoop:
 
 		case Error:
 			// Log the error and terminate the connection.
-			log.Printf("Server returned error: %v", packet.Message)
+			state.log("Server returned error: %v", packet.Message)
 			return &TftpRemoteError{
 				Code:    int(packet.Code),
 				Message: packet.Message}
 
 		default:
-			log.Printf("Server returned unexpected packet type: %v", packet)
+			state.log("Server returned unexpected packet type: %v", packet)
 			return TftpProtocolViolation
 		}
 	}
@@ -178,21 +195,26 @@ dataLoop:
 				currentBlockNum = packet.Block
 				currentDataPacket = &packet
 				writer.Write(packet.Data)
-				actualTransferSize += len(packet.Data)
+				actualTransferSize += uint64(len(packet.Data))
 				continue dataLoop
 			}
 
 		case Error:
 			// Log the error and terminate the connection.
-			log.Printf("Server returned error: %v", packet.Message)
+			state.log("Server returned error: %s", packet.Message)
 			return &TftpRemoteError{
 				Code:    int(packet.Code),
 				Message: packet.Message}
 
 		default:
-			log.Printf("Server returned unexpected packet type: %v", packet)
+			state.log("Server returned unexpected packet type: %v", packet)
 			return TftpProtocolViolation
 		}
+	}
+
+	if expectedTransferSize != 0 && actualTransferSize != expectedTransferSize {
+		state.log("transfer size mismatch: expected=%d, actual=%d", expectedTransferSize, actualTransferSize)
+		return TransferSizeError
 	}
 
 	return nil

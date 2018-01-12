@@ -7,7 +7,17 @@ import (
 	"net"
 	"testing"
 	"time"
+	"log"
 )
+
+type testLogWriter struct {
+	t *testing.T
+}
+
+func (l *testLogWriter) Write(p []byte) (n int, err error) {
+	l.t.Log(string(p))
+	return len(p), nil
+}
 
 func dummyServerLoop(ctx context.Context, t *testing.T, conn1 *PacketChan, conn2 *PacketChan, steps []testStep) {
 	var clientAddr net.Addr
@@ -133,7 +143,11 @@ func TestGetFile(t *testing.T) {
 	t.Run("basic read request", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
-			config := ClientConfig{DisableOptions: true}
+			config := ClientConfig{
+				DisableOptions: true,
+				TracePackets:   true,
+				Logger:         log.New(&testLogWriter{t}, "", 0),
+			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
 			if err != nil {
@@ -160,7 +174,11 @@ func TestGetFile(t *testing.T) {
 	t.Run("block aligned read request", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
-			config := ClientConfig{DisableOptions: true}
+			config := ClientConfig{
+				DisableOptions: true,
+				TracePackets:   true,
+				Logger:         log.New(&testLogWriter{t}, "", 0),
+			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
 			if err != nil {
@@ -189,7 +207,10 @@ func TestGetFile(t *testing.T) {
 	t.Run("read with tsize option", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
-			var config ClientConfig
+			config := ClientConfig{
+				TracePackets: true,
+				Logger:       log.New(&testLogWriter{t}, "", 0),
+			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
 			if err != nil {
@@ -212,6 +233,30 @@ func TestGetFile(t *testing.T) {
 			{Receive: Ack{Block: 1}},
 			{Send: Data{Block: 2, Data: data[512:768]}},
 			{Receive: Ack{Block: 2}},
+		})
+	})
+
+	t.Run("detect transfer size mismatch", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			var buffer bytes.Buffer
+			config := ClientConfig{
+				TracePackets: true,
+				Logger:       log.New(&testLogWriter{t}, "", 0),
+			}
+
+			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
+			if err != TransferSizeError {
+				t.Errorf("GetFile failed unexpetedly: %v", err)
+				return
+			} else if err == nil {
+				t.Error("GetFile should not have succeeded")
+			}
+		}, []testStep{
+			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"tsize": "0"}}},
+			{Send: OptionsAck{Options: map[string]string{"tsize": "300"}}},
+			{Receive: Ack{Block: 0}},
+			{Send: Data{Block: 1, Data: data[0:256]}},
+			{Receive: Ack{Block: 1}},
 		})
 	})
 }
