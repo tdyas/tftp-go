@@ -22,7 +22,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = tftp.GetFile(context.Background(), address, filename, "octet", 0, file)
+	err = tftp.GetFile(context.Background(), address, filename, "octet", nil, file)
 	if err != nil {
 		fmt.Printf("ERROR: TFTP RRQ failed: %v\n", err)
 		os.Exit(1)
