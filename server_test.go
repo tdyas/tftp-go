@@ -35,6 +35,7 @@ func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 
 	client, err := NewPacketChan(clientConn, 1, 1)
 	if err != nil {
+		clientConn.Close()
 		t.Errorf("Unable to open socket: %v", err)
 		return
 	}
@@ -48,7 +49,7 @@ func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 				sendAddr = mainRemoteAddr
 			}
 
-			sent := make(chan error)
+			sent := make(chan error, 1)
 			client.Outgoing <- Packet{step.Send.ToBytes(), sendAddr, sent}
 			select {
 			case err := <-sent:
@@ -228,16 +229,22 @@ func TestReadSupport(t *testing.T) {
 
 type closableBuffer struct {
 	bytes.Buffer
-	done chan bool
+	closedSignal chan bool
+}
+
+func newCloseableBuffer() *closableBuffer {
+	return &closableBuffer{closedSignal: make(chan bool, 1)}
 }
 
 func (b *closableBuffer) Close() error {
-	b.done <- true
-	close(b.done)
+	b.closedSignal <- true
+	close(b.closedSignal)
 	return nil
 }
 
 func TestWriteSupport(t *testing.T) {
+	t.Parallel()
+
 	data := make([]byte, 3*512)
 	_, err := rand.Read(data)
 	if err != nil {
@@ -255,9 +262,7 @@ func TestWriteSupport(t *testing.T) {
 		bufferKey := strconv.Itoa(nextBufferKey)
 		nextBufferKey++
 
-		buffer := &closableBuffer{
-			done: make(chan bool),
-		}
+		buffer := newCloseableBuffer()
 
 		t.Log("bufferKey = %s", bufferKey)
 
@@ -319,7 +324,7 @@ func TestWriteSupport(t *testing.T) {
 			{Send: Data{Block: 2, Data: data[512:768]}},
 			{Receive: Ack{Block: 2}},
 		})
-		<-buffer.done
+		<-buffer.closedSignal
 		if !bytes.Equal(data[0:768], buffer.Bytes()) {
 			t.Error("Results do not match")
 		}
@@ -337,7 +342,7 @@ func TestWriteSupport(t *testing.T) {
 			{Send: Data{Block: 3, Data: []byte{}}},
 			{Receive: Ack{Block: 3}},
 		})
-		<-buffer.done
+		<-buffer.closedSignal
 		if !bytes.Equal(data[0:1024], buffer.Bytes()) {
 			t.Error("Results do not match")
 		}
@@ -370,7 +375,7 @@ func TestWriteSupport(t *testing.T) {
 			{Send: Data{Block: 1, Data: data[0:1024]}},
 			{Receive: Ack{1}},
 		})
-		<-buffer.done
+		<-buffer.closedSignal
 		if !bytes.Equal(data[0:1024], buffer.Bytes()) {
 			t.Errorf("Results do not match")
 		}
@@ -387,7 +392,7 @@ func TestWriteSupport(t *testing.T) {
 			{Send: Data{Block: 2, Data: data[768:1024]}},
 			{Receive: Ack{2}},
 		})
-		<-buffer.done
+		<-buffer.closedSignal
 		if !bytes.Equal(data[0:1024], buffer.Bytes()) {
 			t.Errorf("Results do not match")
 		}

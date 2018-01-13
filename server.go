@@ -1,6 +1,7 @@
 package tftp
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log"
@@ -9,7 +10,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"context"
 )
 
 var RootMustBeAADirectoryError = errors.New("the TFTP root must be a directory")
@@ -50,7 +50,8 @@ type Server struct {
 	config *ServerConfig
 	conn   *PacketChan
 	log    *log.Logger
-	done   chan bool
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func (server *Server) handleRRQ(state *connectionState, request *ReadRequest, replyConn net.PacketConn, remoteAddr net.Addr) {
@@ -505,13 +506,15 @@ func (server *Server) handleRequest(parentCtx context.Context, requestBytes []by
 	default:
 		state.log("Non-RRQ/WRQ request from %v: %#v (%T)", remoteAddr, request, request)
 		reply := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal TFTP operation"}
-		sent := make(chan error)
+		sent := make(chan error, 1)
 		pchan.Outgoing <- Packet{reply.ToBytes(), remoteAddr, sent}
 		<-sent
 	}
 }
 
 func (server *Server) mainServerLoop(ctx context.Context) {
+	defer server.conn.Close()
+
 	for {
 		select {
 		case packet := <-server.conn.Incoming:
@@ -521,8 +524,6 @@ func (server *Server) mainServerLoop(ctx context.Context) {
 			return
 		}
 	}
-
-	server.done <- true
 }
 
 func validateServerConfig(userConfig *ServerConfig) (*ServerConfig, error) {
@@ -569,7 +570,7 @@ func NewServer(address string, config *ServerConfig) (*Server, error) {
 	return NewServerContext(context.Background(), address, config)
 }
 
-func NewServerContext(ctx context.Context, address string, config *ServerConfig) (*Server, error) {
+func NewServerContext(parent context.Context, address string, config *ServerConfig) (*Server, error) {
 	config, err := validateServerConfig(config)
 	if err != nil {
 		return nil, err
@@ -585,11 +586,14 @@ func NewServerContext(ctx context.Context, address string, config *ServerConfig)
 		return nil, err
 	}
 
+	ctx, cancel := context.WithCancel(parent)
+
 	server := Server{
 		config: config,
 		conn:   pchan,
 		log:    config.Logger,
-		done:   make(chan bool, 1),
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	go server.mainServerLoop(ctx)
@@ -602,9 +606,9 @@ func (s *Server) LocalAddr() net.Addr {
 }
 
 func (s *Server) Close() {
-	s.conn.Close()
+	s.cancel()
 }
 
 func (s *Server) Join() {
-	<-s.done
+	<-s.ctx.Done()
 }

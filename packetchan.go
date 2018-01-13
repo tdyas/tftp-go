@@ -19,7 +19,7 @@ type PacketChan struct {
 	Incoming <-chan Packet
 	Outgoing chan<- Packet
 	conn     net.PacketConn
-	err      error
+	closeErr error
 	closed   int32
 }
 
@@ -28,13 +28,13 @@ func receiveLoop(conn net.PacketConn, packets chan<- Packet, closed *int32) {
 		buffer := make([]byte, 65535)
 
 		n, remoteAddr, err := conn.ReadFrom(buffer)
-		if err != nil {
+		if err == nil {
+			packets <- Packet{Data: buffer[0:n], Addr: remoteAddr}
+		} else {
 			if atomic.LoadInt32(closed) != 0 {
 				break
 			}
 		}
-
-		packets <- Packet{Data: buffer[0:n], Addr: remoteAddr}
 	}
 
 	close(packets)
@@ -43,9 +43,8 @@ func receiveLoop(conn net.PacketConn, packets chan<- Packet, closed *int32) {
 func sendLoop(conn net.PacketConn, packets <-chan Packet, closed *int32) {
 	for packet := range packets {
 		_, err := conn.WriteTo(packet.Data, packet.Addr)
-		if packet.Sent != nil {
-			packet.Sent <- err
-		}
+		packet.Sent <- err
+		close(packet.Sent)
 
 		if err != nil {
 			if atomic.LoadInt32(closed) != 0 {
@@ -77,7 +76,8 @@ func (self *PacketChan) LocalAddr() net.Addr {
 
 func (self *PacketChan) Close() error {
 	if atomic.CompareAndSwapInt32(&self.closed, 0, 1) {
-		return self.conn.Close()
+		close(self.Outgoing)
+		self.closeErr = self.conn.Close()
 	}
-	return nil
+	return self.closeErr
 }
