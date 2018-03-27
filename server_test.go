@@ -264,7 +264,7 @@ func TestWriteSupport(t *testing.T) {
 
 		buffer := newCloseableBuffer()
 
-		t.Log("bufferKey = %s", bufferKey)
+		t.Logf("bufferKey = %s", bufferKey)
 
 		buffersMapLock.Lock()
 		defer buffersMapLock.Unlock()

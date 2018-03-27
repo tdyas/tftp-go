@@ -191,7 +191,7 @@ func (server *Server) handleRRQ(state *connectionState, request *ReadRequest, re
 		}
 	}
 
-	server.log.Printf("state.blockSize=%v, timeout=", state.blockSize, state.timeout)
+	server.log.Printf("state.blockSize=%v, timeout=%v", state.blockSize, state.timeout)
 
 	// Start sending the file.
 	fileBuffer := make([]byte, state.blockSize)
@@ -413,7 +413,7 @@ func (server *Server) handleWRQ(state *connectionState, request *WriteRequest, r
 		}
 	}
 
-	server.log.Printf("state.blockSize=%v, timeout=", state.blockSize, state.timeout)
+	server.log.Printf("state.blockSize=%v, timeout=%v", state.blockSize, state.timeout)
 
 	var blockNum uint16 = 1
 

@@ -222,7 +222,7 @@ func (wrq WriteRequest) ToBytes() []byte {
 func (wrq WriteRequest) String() string {
 	var options = ""
 	for key, value := range wrq.Options {
-		options += fmt.Sprint(", %v=%v", key, value)
+		options += fmt.Sprintf(", %v=%v", key, value)
 	}
 	return fmt.Sprintf("WRQ <file=%v, mode=%v%v>", wrq.Filename, wrq.Mode, options)
 }
