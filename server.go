@@ -39,6 +39,7 @@ type ServerConfig struct {
 	MaxBlockSize   uint16
 	DisableOptions bool
 	TracePackets   bool
+	MaxRetries     int
 	ReadRoot       string
 	WriteRoot      string
 	GetReadStream  func(filename string) (io.ReadCloser, int64, error)
@@ -160,34 +161,28 @@ func (server *Server) handleRRQ(state *connectionState, request *ReadRequest, re
 			oack.Options["timeout"] = strconv.Itoa(state.timeout)
 		}
 
-	oackSend:
-		for {
-			state.send(&oack)
-
-			rawPacket, err := state.receive()
-			if err != nil {
-				if err.(net.Error).Timeout() {
-					continue
-				}
-				return
-			}
-
+		_, err := state.sendAndReceiveNext(&oack, func(rawPacket interface{}) (bool, error) {
 			switch packet := rawPacket.(type) {
 			case Ack:
 				if packet.Block == 0 {
-					// Client acknowledged the options. Break out of the outer loop.
-					break oackSend
+					// Client acknowledged the options.
+					return true, nil
+				} else {
+					// Acknowledgement of any other block is illegal since we have not sent any blocks.
+					errorPacket := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"}
+					state.send(&errorPacket)
+					return false, &errorPacket
 				}
-
-			case Error:
-				server.log.Printf("Client returned error: %v", packet.Message)
-				return
 
 			default:
 				server.log.Printf("Unexpected packet: %#v", packet)
-				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
-				return
+				errorPacket := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"}
+				state.send(&errorPacket)
+				return false, &errorPacket
 			}
+		})
+		if err != nil {
+			return
 		}
 	}
 
@@ -206,35 +201,31 @@ fileSend:
 
 		dataPacket := Data{Block: blockNum, Data: fileBuffer[0:n]}
 
-	dataSend:
-		for {
-			state.send(&dataPacket)
-
-			rawPacket, err := state.receive()
-			if err != nil {
-				if err.(net.Error).Timeout() {
-					continue dataSend
-				}
-				return
-			}
-
+		_, err = state.sendAndReceiveNext(dataPacket, func(rawPacket interface{}) (bool, error) {
 			switch packet := rawPacket.(type) {
 			case Ack:
 				if packet.Block == blockNum {
-					// Client acknowledged the last packet. Break out of the outer loop.
-					break dataSend
+					// Client acknowledged the last packet.
+					return true, nil
+				} else if packet.Block < blockNum {
+					// Ignore acknowledgements of earlier packets.
+					return false, nil
+				} else {
+					// Future blocks cannot be acknowledged since we did not send them. Bail out.
+					errorPacket := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"}
+					state.send(&errorPacket)
+					return false, &errorPacket
 				}
-
-			case Error:
-				server.log.Printf("Client returned error: %v", packet.Message)
-				return
 
 			default:
 				server.log.Printf("Unexpected packet: %#v", packet)
-				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
-				return
+				errorPacket := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"}
+				state.send(&errorPacket)
+				return false, &errorPacket
 			}
-
+		})
+		if err != nil {
+			return
 		}
 
 		blockNum += 1
@@ -351,66 +342,51 @@ func (server *Server) handleWRQ(state *connectionState, request *WriteRequest, r
 			oack.Options["timeout"] = strconv.Itoa(state.timeout)
 		}
 
-	oackSend:
-		for {
-			state.send(&oack)
-
-			rawPacket, err := state.receive()
-			if err != nil {
-				if err.(net.Error).Timeout() {
-					continue
-				}
-				return
-			}
-
+		nextPacket, err := state.sendAndReceiveNext(&oack, func(rawPacket interface{}) (bool, error) {
 			switch packet := rawPacket.(type) {
 			case Data:
 				if packet.Block == 1 {
 					// Client acknowledged the options. Break out of the outer loop.
-					nextDataPacket = &packet
-					break oackSend
+					return true, nil
+				} else {
+					errorPacket := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"}
+					state.send(&errorPacket)
+					return false, &errorPacket
 				}
-
-			case Error:
-				server.log.Printf("Client returned error: %v", packet.Message)
-				return
 
 			default:
 				server.log.Printf("Unexpected packet: %#v", packet)
-				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
-				return
+				errorPacket := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"}
+				state.send(&errorPacket)
+				return false, &errorPacket
 			}
+		})
+		if err != nil {
+			return
 		}
+
+		nextPacketAsData := nextPacket.(Data)
+		nextDataPacket = &nextPacketAsData
 	} else {
 		ack := Ack{Block: 0}
-	ackSend:
-		for {
-			state.send(&ack)
-
-			rawPacket, err := state.receive()
-			if err != nil {
-				if err.(net.Error).Timeout() {
-					continue
-				}
-				return
-			}
-
+		nextPacket, err := state.sendAndReceiveNext(&ack, func(rawPacket interface{}) (bool, error) {
 			switch packet := rawPacket.(type) {
 			case Data:
-				// Client acknowledged the options. Break out of the outer loop.
-				nextDataPacket = &packet
-				break ackSend
-
-			case Error:
-				server.log.Printf("Client returned error: %v", packet.Message)
-				return
+				return true, nil
 
 			default:
 				server.log.Printf("Unexpected packet: %#v", packet)
-				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
-				return
+				errorPacket := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"}
+				state.send(&errorPacket)
+				return false, &errorPacket
 			}
+		})
+		if err != nil {
+			return
 		}
+
+		nextPacketAsData := nextPacket.(Data)
+		nextDataPacket = &nextPacketAsData
 	}
 
 	server.log.Printf("state.blockSize=%v, timeout=%v", state.blockSize, state.timeout)
@@ -424,41 +400,29 @@ dataBlockLoop:
 
 		// Send an acknowledgement to the client.
 		ack := Ack{Block: blockNum}
-
-	ackSend2:
-		for {
+		if len(nextDataPacket.Data) < int(state.blockSize) {
 			state.send(&ack)
+			break dataBlockLoop
+		}
 
-			if len(nextDataPacket.Data) < int(state.blockSize) {
-				break dataBlockLoop
-			}
-
-			rawPacket, err := state.receive()
-			if err != nil {
-				if err.(net.Error).Timeout() {
-					continue ackSend2
-				}
-				return
-			}
-
+		nextPacket, err := state.sendAndReceiveNext(&ack, func(rawPacket interface{}) (bool, error) {
 			switch packet := rawPacket.(type) {
 			case Data:
 				// Client acknowledged the options. Break out of the outer loop.
-				nextDataPacket = &packet
-				blockNum += 1
-				continue dataBlockLoop
-
-			case Error:
-				server.log.Printf("Client returned error: %v", packet.Message)
-				return
-
+				return true, nil
 			default:
 				server.log.Printf("Unexpected packet: %#v", packet)
-				state.send(&Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"})
-				return
+				errorPacket := Error{Code: ERR_ILLEGAL_OPERATION, Message: "Illegal operation"}
+				state.send(&errorPacket)
+				return false, &errorPacket
 			}
+		})
+		if err != nil {
+			return
 		}
-
+		nextPacketAsData := nextPacket.(Data)
+		nextDataPacket = &nextPacketAsData
+		blockNum += 1
 	}
 }
 
@@ -493,6 +457,7 @@ func (server *Server) handleRequest(parentCtx context.Context, requestBytes []by
 		remoteAddr:   remoteAddr,
 		blockSize:    DEFAULT_BLOCKSIZE,
 		timeout:      5,
+		maxRetries:   server.config.MaxRetries,
 		tracePackets: server.config.TracePackets,
 	}
 
@@ -537,6 +502,10 @@ func validateServerConfig(userConfig *ServerConfig) (*ServerConfig, error) {
 	}
 	if config.MaxBlockSize < MIN_BLOCK_SIZE || config.MaxBlockSize > MAX_BLOCK_SIZE {
 		panic("MaxBlockSize must be between 8 and 65464 inclusive.")
+	}
+
+	if config.MaxRetries == 0 {
+		config.MaxRetries = 5
 	}
 
 	if config.ReadRoot != "" {

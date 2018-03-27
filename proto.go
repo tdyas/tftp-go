@@ -295,3 +295,10 @@ func (oack OptionsAck) String() string {
 	}
 	return fmt.Sprintf("OACK <%v>", options)
 }
+
+func (e Error) Error() string {
+	return fmt.Sprintf("remote error: %v (%v)", e.Message, e.Code)
+}
+
+func (e Error) Timeout() bool   { return false }
+func (e Error) Temporary() bool { return false }

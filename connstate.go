@@ -16,6 +16,7 @@ type connectionState struct {
 	remoteAddr     net.Addr
 	blockSize      uint16
 	timeout        int
+	maxRetries     int
 	tracePackets   bool
 }
 
@@ -116,4 +117,101 @@ receiveLoop:
 			return nil, state.ctx.Err()
 		}
 	}
+}
+
+type packetDispositionFunc func(packet interface{}) (bool, error)
+
+func (state *connectionState) sendAndReceiveNext(
+	packetToSend packetMethods,
+	packetDisposition packetDispositionFunc) (interface{}, error) {
+
+	if state.tracePackets {
+		state.log("sending %s", packetToSend.String())
+	}
+
+	bytesToSend := packetToSend.ToBytes()
+	tries := 0
+
+sendLoop:
+	for tries < state.maxRetries {
+		tries += 1
+
+		// Determine the remote address of the client.
+		remoteAddr := state.remoteAddr
+		if remoteAddr == nil {
+			remoteAddr = state.mainRemoteAddr
+			if remoteAddr == nil {
+				panic("No address was set in TFTP connection state.")
+			}
+		}
+
+		// Send the packet to the client.
+		sent := make(chan error)
+		state.conn.Outgoing <- Packet{Data: bytesToSend, Addr: remoteAddr, Sent: sent}
+		<-sent
+
+		timeout := time.After(time.Duration(state.timeout) * time.Second)
+
+	receiveLoop:
+		select {
+		case packet := <-state.conn.Incoming:
+			// Ensure that this packet's remote address matches the expected address if we know the address
+			// in use by the remote peer.
+			if state.remoteAddr != nil {
+				if state.remoteAddr.String() != packet.Addr.String() {
+					// RFC 1350: "If a source TID does not match, the packet should be discarded as erroneously sent from
+					// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
+					// disturbing the transfer."
+					errorPacket := Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"}
+					state.conn.Outgoing <- Packet{errorPacket.ToBytes(), packet.Addr, nil}
+					goto receiveLoop
+				}
+			} else {
+				// Record the peer's address as the expected address if and only if there is a separate
+				// "main" remote address in use and this packet's address differs from that main address.
+				if state.mainRemoteAddr != nil && packet.Addr.String() != state.mainRemoteAddr.String() {
+					state.remoteAddr = packet.Addr
+				}
+			}
+
+			tftpPacket, err := PacketFromBytes(packet.Data)
+			if err != nil {
+				errorPacket := Error{Code: ERR_NOT_DEFINED, Message: "Malformed packet"}
+				state.conn.Outgoing <- Packet{errorPacket.ToBytes(), state.remoteAddr, nil}
+				return nil, err
+			}
+
+			if state.tracePackets {
+				state.log("received %s", tftpPacket.(packetMethods).String())
+			}
+
+			if errorPacket, ok := tftpPacket.(Error); ok {
+				state.log("Remote sent error: %v", errorPacket)
+				return nil, errorPacket
+			}
+
+			returnPacket, err := packetDisposition(tftpPacket.(packetMethods))
+
+			if err == nil {
+				if returnPacket {
+					return tftpPacket, nil
+				} else {
+					goto receiveLoop
+				}
+			} else {
+				return nil, err
+			}
+
+		case <-timeout:
+			continue sendLoop
+
+		case <-state.ctx.Done():
+			errorPacket := Error{Code: ERR_NOT_DEFINED, Message: "Shutdown."}
+			state.conn.Outgoing <- Packet{errorPacket.ToBytes(), state.remoteAddr, nil}
+			return nil, state.ctx.Err()
+		}
+	}
+
+	// If we reach here, then peer failed to respond to retransmission.
+	return nil, &errTimedOut
 }
