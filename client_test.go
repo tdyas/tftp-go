@@ -3,11 +3,11 @@ package tftp
 import (
 	"bytes"
 	"context"
+	"log"
 	"math/rand"
 	"net"
 	"testing"
 	"time"
-	"log"
 )
 
 type testLogWriter struct {

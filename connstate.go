@@ -1,11 +1,11 @@
 package tftp
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"time"
-	"context"
 )
 
 type connectionState struct {

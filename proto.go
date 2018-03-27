@@ -21,8 +21,8 @@ const (
 
 const (
 	DEFAULT_BLOCKSIZE = 512
-	MIN_BLOCK_SIZE = 8
-	MAX_BLOCK_SIZE = 65464
+	MIN_BLOCK_SIZE    = 8
+	MAX_BLOCK_SIZE    = 65464
 )
 
 type ReadRequest struct {
@@ -77,10 +77,10 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 	switch code {
 	case 1:
 		strs := bytes.Split(buffer[2:], []byte{0})
-		if len(strs[len(strs) - 1]) != 0 {
+		if len(strs[len(strs)-1]) != 0 {
 			return nil, MalformedPacketError
 		}
-		strs = strs[0:len(strs)-1]
+		strs = strs[0 : len(strs)-1]
 		if len(strs) < 2 {
 			return nil, MalformedPacketError
 		}
@@ -102,10 +102,10 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 
 	case 2:
 		strs := bytes.Split(buffer[2:], []byte{0})
-		if len(strs[len(strs) - 1]) != 0 {
+		if len(strs[len(strs)-1]) != 0 {
 			return nil, MalformedPacketError
 		}
-		strs = strs[0:len(strs)-1]
+		strs = strs[0 : len(strs)-1]
 		if len(strs) < 2 {
 			return nil, MalformedPacketError
 		}
@@ -156,10 +156,10 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 
 	case 6:
 		strs := bytes.Split(buffer[2:], []byte{0})
-		if len(strs[len(strs) - 1]) != 0 {
+		if len(strs[len(strs)-1]) != 0 {
 			return nil, MalformedPacketError
 		}
-		strs = strs[0:len(strs)-1]
+		strs = strs[0 : len(strs)-1]
 		if (len(strs) % 2) != 0 {
 			return nil, MalformedPacketError
 		}
@@ -172,7 +172,6 @@ func PacketFromBytes(buffer []byte) (interface{}, error) {
 		return nil, MalformedPacketError
 	}
 }
-
 
 func (rrq ReadRequest) ToBytes() []byte {
 	var buffer bytes.Buffer
