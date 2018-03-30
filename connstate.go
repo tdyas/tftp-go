@@ -73,52 +73,6 @@ func (state *connectionState) send(packet packetMethods) {
 	<-sent
 }
 
-func (state *connectionState) receive() (interface{}, error) {
-receiveLoop:
-	for {
-		timeout := time.After(time.Duration(state.timeout) * time.Second)
-
-		select {
-		case packet := <-state.conn.Incoming:
-			// Ensure that this packet's remote address matches the expected address if we know the address
-			// in use by the remote peer.
-			if state.remoteAddr != nil {
-				if state.remoteAddr.String() != packet.Addr.String() {
-					// RFC 1350: "If a source TID does not match, the packet should be discarded as erroneously sent from
-					// somewhere else.  An error packet should be sent to the source of the incorrect packet, while not
-					// disturbing the transfer."
-					errorPacket := Error{Code: ERR_UNKNOWN_TRANSFER_ID, Message: "Unknown transfer ID"}
-					state.conn.Outgoing <- Packet{errorPacket.ToBytes(), packet.Addr, nil}
-					continue receiveLoop
-				}
-			} else {
-				// Record the peer's address as the expected address if and only if there is a separate
-				// "main" remote address in use and this packet's address differs from that main address.
-				if state.mainRemoteAddr != nil && packet.Addr.String() != state.mainRemoteAddr.String() {
-					state.remoteAddr = packet.Addr
-				}
-			}
-
-			tftpPacket, err := PacketFromBytes(packet.Data)
-			if err != nil {
-				return nil, err
-			}
-
-			if state.tracePackets {
-				state.log("received %s", tftpPacket.(packetMethods).String())
-			}
-
-			return tftpPacket, nil
-
-		case <-timeout:
-			return nil, &errTimedOut
-
-		case <-state.ctx.Done():
-			return nil, state.ctx.Err()
-		}
-	}
-}
-
 type packetDispositionFunc func(packet interface{}) (bool, error)
 
 func (state *connectionState) sendAndReceiveNext(
