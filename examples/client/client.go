@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	tftp "github.com/tdyas/tftp-go"
+	"github.com/tdyas/tftp-go"
 	"os"
 )
 
