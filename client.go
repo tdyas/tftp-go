@@ -55,7 +55,7 @@ func GetFile(
 	}
 
 	// Create a context to bind all of this client's goroutines together. The context will
-	// be cacelled automatically when this function returns.
+	// be cancelled automatically when this function returns.
 	ctx, cancelFunc := context.WithCancel(parentCtx)
 	defer cancelFunc()
 
