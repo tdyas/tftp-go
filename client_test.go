@@ -156,9 +156,11 @@ func TestGetFile(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
 			config := ClientConfig{
-				DisableOptions: true,
-				TracePackets:   true,
-				Logger:         log.New(&testLogWriter{t}, "", 0),
+				DisableOptions:            true,
+				DisableTransferSizeOption: true,
+				DisableBlockSizeOption:    true,
+				TracePackets:              true,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
@@ -183,13 +185,15 @@ func TestGetFile(t *testing.T) {
 		})
 	})
 
-	t.Run("block aligned read request", func(t *testing.T) {
+	t.Run("block-aligned read request", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
 			config := ClientConfig{
-				DisableOptions: true,
-				TracePackets:   true,
-				Logger:         log.New(&testLogWriter{t}, "", 0),
+				DisableOptions:            true,
+				DisableTransferSizeOption: true,
+				DisableBlockSizeOption:    true,
+				TracePackets:              true,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
@@ -220,8 +224,9 @@ func TestGetFile(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
 			config := ClientConfig{
-				TracePackets: true,
-				Logger:       log.New(&testLogWriter{t}, "", 0),
+				DisableBlockSizeOption: true,
+				TracePackets:           true,
+				Logger:                 log.New(&testLogWriter{t}, "", 0),
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
@@ -252,8 +257,9 @@ func TestGetFile(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
 			config := ClientConfig{
-				TracePackets: true,
-				Logger:       log.New(&testLogWriter{t}, "", 0),
+				DisableBlockSizeOption: true,
+				TracePackets:           true,
+				Logger:                 log.New(&testLogWriter{t}, "", 0),
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
@@ -269,6 +275,112 @@ func TestGetFile(t *testing.T) {
 			{Receive: Ack{Block: 0}},
 			{Send: Data{Block: 1, Data: data[0:256]}},
 			{Receive: Ack{Block: 1}},
+		})
+	})
+
+	t.Run("read with blksize option - non-block-aligned size", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			var buffer bytes.Buffer
+			config := ClientConfig{
+				DisableTransferSizeOption: true,
+				TracePackets:              true,
+				MaxBlockSize:              768,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
+			}
+
+			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
+			if err != nil {
+				t.Errorf("GetFile failed: %v", err)
+				return
+			}
+			if buffer.Len() != 1024 {
+				t.Error("Length does not match")
+				return
+			}
+			if !bytes.Equal(data[0:1024], buffer.Bytes()) {
+				t.Error("Bytes read do not match")
+				return
+			}
+		}, []testStep{
+			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
+			{Send: OptionsAck{Options: map[string]string{"blksize": "768"}}},
+			{Receive: Ack{Block: 0}},
+			{Send: Data{Block: 1, Data: data[0:768]}},
+			{Receive: Ack{Block: 1}},
+			{Send: Data{Block: 2, Data: data[768:1024]}},
+			{Receive: Ack{Block: 2}},
+		})
+	})
+
+	t.Run("read with blksize option - block-aligned size", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			var buffer bytes.Buffer
+			config := ClientConfig{
+				DisableTransferSizeOption: true,
+				TracePackets:              true,
+				MaxBlockSize:              768,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
+			}
+
+			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
+			if err != nil {
+				t.Errorf("GetFile failed: %v", err)
+				return
+			}
+			if buffer.Len() != 1536 {
+				t.Error("Length does not match")
+				return
+			}
+			if !bytes.Equal(data[0:1536], buffer.Bytes()) {
+				t.Error("Bytes read do not match")
+				return
+			}
+		}, []testStep{
+			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
+			{Send: OptionsAck{Options: map[string]string{"blksize": "768"}}},
+			{Receive: Ack{Block: 0}},
+			{Send: Data{Block: 1, Data: data[0:768]}},
+			{Receive: Ack{Block: 1}},
+			{Send: Data{Block: 2, Data: data[768:1536]}},
+			{Receive: Ack{Block: 2}},
+			{Send: Data{Block: 3, Data: []byte{}}},
+			{Receive: Ack{Block: 3}},
+		})
+	})
+
+	t.Run("read with blksize option modified by server", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			var buffer bytes.Buffer
+			config := ClientConfig{
+				DisableTransferSizeOption: true,
+				TracePackets:              true,
+				MaxBlockSize:              768,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
+			}
+
+			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
+			if err != nil {
+				t.Errorf("GetFile failed: %v", err)
+				return
+			}
+			if buffer.Len() != 1024 {
+				t.Error("Length does not match")
+				return
+			}
+			if !bytes.Equal(data[0:1024], buffer.Bytes()) {
+				t.Error("Bytes read do not match")
+				return
+			}
+		}, []testStep{
+			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
+			{Send: OptionsAck{Options: map[string]string{"blksize": "384"}}},
+			{Receive: Ack{Block: 0}},
+			{Send: Data{Block: 1, Data: data[0:384]}},
+			{Receive: Ack{Block: 1}},
+			{Send: Data{Block: 2, Data: data[384:768]}},
+			{Receive: Ack{Block: 2}},
+			{Send: Data{Block: 3, Data: data[768:1024]}},
+			{Receive: Ack{Block: 3}},
 		})
 	})
 }

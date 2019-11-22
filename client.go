@@ -41,7 +41,7 @@ func validateClientConfig(userConfig *ClientConfig) (*ClientConfig, error) {
 		config.MaxRetries = 5
 	}
 	if config.MaxBlockSize == 0 {
-		config.MaxBlockSize = DEFAULT_BLOCKSIZE
+		config.MaxBlockSize = 16384
 	} else if config.MaxBlockSize < MIN_BLOCK_SIZE || config.MaxBlockSize > MAX_BLOCK_SIZE {
 		return nil, errors.New("invalid MaxBlockSize config")
 	}
@@ -91,9 +91,13 @@ func GetFile(
 		tracePackets:   config.TracePackets,
 	}
 
-	enableTransferSizeOption := true
-	requestedBlockSize := 16384
-	enableBlockSizeOption := false
+	enableTransferSizeOption := !config.DisableOptions && !config.DisableTransferSizeOption
+
+	enableBlockSizeOption := !config.DisableOptions && !config.DisableBlockSizeOption
+	var requestedBlockSize uint16 = DEFAULT_BLOCKSIZE
+	if enableBlockSizeOption {
+		requestedBlockSize = config.MaxBlockSize
+	}
 
 	// Build the read request.
 	rrq := ReadRequest{
@@ -101,13 +105,11 @@ func GetFile(
 		Mode:     mode,
 		Options:  make(map[string]string),
 	}
-	if !config.DisableOptions {
-		if enableTransferSizeOption {
-			rrq.Options["tsize"] = "0"
-		}
-		if enableBlockSizeOption {
-			rrq.Options["blksize"] = strconv.Itoa(requestedBlockSize)
-		}
+	if enableTransferSizeOption {
+		rrq.Options["tsize"] = "0"
+	}
+	if enableBlockSizeOption {
+		rrq.Options["blksize"] = strconv.Itoa(int(requestedBlockSize))
 	}
 
 	var currentBlockNum uint16 = 1
