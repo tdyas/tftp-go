@@ -43,7 +43,7 @@ func put(address string, srcFilename string, destFilename string) error {
 
 func main() {
 	if len(os.Args) != 4 {
-		fmt.Printf("usage: read|write REMOTE SOURCE DEST.\n")
+		fmt.Printf("usage: get|put REMOTE SOURCE DEST\n")
 		os.Exit(1)
 	}
 
