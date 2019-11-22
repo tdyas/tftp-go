@@ -50,7 +50,7 @@ func validateClientConfig(userConfig *ClientConfig) (*ClientConfig, error) {
 }
 
 func GetFile(
-	parentCtx context.Context,
+	ctx context.Context,
 	address string,
 	filename string,
 	mode string,
@@ -62,11 +62,6 @@ func GetFile(
 	if err != nil {
 		return err
 	}
-
-	// Create a context to bind all of this client's goroutines together. The context will
-	// be cancelled automatically when this function returns.
-	ctx, cancelFunc := context.WithCancel(parentCtx)
-	defer cancelFunc()
 
 	// Bind a random but specific local socket for this request.
 	mainRemoteAddr, err := net.ResolveUDPAddr("udp", address)
