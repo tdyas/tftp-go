@@ -23,7 +23,6 @@ func (e *TftpRemoteError) Error() string {
 }
 
 type ClientConfig struct {
-	DisableOptions            bool
 	DisableTransferSizeOption bool
 	DisableBlockSizeOption    bool
 	MaxBlockSize              uint16
@@ -91,9 +90,9 @@ func GetFile(
 		tracePackets:   config.TracePackets,
 	}
 
-	enableTransferSizeOption := !config.DisableOptions && !config.DisableTransferSizeOption
+	enableTransferSizeOption := !config.DisableTransferSizeOption
 
-	enableBlockSizeOption := !config.DisableOptions && !config.DisableBlockSizeOption
+	enableBlockSizeOption := !config.DisableBlockSizeOption
 	var requestedBlockSize uint16 = DEFAULT_BLOCKSIZE
 	if enableBlockSizeOption {
 		requestedBlockSize = config.MaxBlockSize
@@ -258,14 +257,14 @@ func PutFile(
 		tracePackets:   config.TracePackets,
 	}
 
-	enableTransferSizeOption := !config.DisableOptions && !config.DisableTransferSizeOption
+	enableTransferSizeOption := !config.DisableTransferSizeOption
 	totalSize := SizeOfReader(reader)
 	if totalSize == -1 {
 		enableTransferSizeOption = false
 	}
 
 	var requestedBlockSize uint16 = DEFAULT_BLOCKSIZE
-	enableBlockSizeOption := !config.DisableOptions && !config.DisableBlockSizeOption
+	enableBlockSizeOption := !config.DisableBlockSizeOption
 	if enableBlockSizeOption {
 		requestedBlockSize = config.MaxBlockSize
 	}
@@ -276,13 +275,11 @@ func PutFile(
 		Mode:     mode,
 		Options:  make(map[string]string),
 	}
-	if !config.DisableOptions {
-		if enableTransferSizeOption {
-			writeRequest.Options["tsize"] = strconv.FormatInt(totalSize, 10)
-		}
-		if enableBlockSizeOption {
-			writeRequest.Options["blksize"] = strconv.Itoa(int(requestedBlockSize))
-		}
+	if enableTransferSizeOption {
+		writeRequest.Options["tsize"] = strconv.FormatInt(totalSize, 10)
+	}
+	if enableBlockSizeOption {
+		writeRequest.Options["blksize"] = strconv.Itoa(int(requestedBlockSize))
 	}
 
 	rawPacket, err := state.sendAndReceiveNext(&writeRequest, func(rawPacket interface{}) (bool, error) {

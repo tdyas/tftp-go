@@ -156,7 +156,6 @@ func TestGetFile(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
 			config := ClientConfig{
-				DisableOptions:            true,
 				DisableTransferSizeOption: true,
 				DisableBlockSizeOption:    true,
 				TracePackets:              true,
@@ -189,7 +188,6 @@ func TestGetFile(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			var buffer bytes.Buffer
 			config := ClientConfig{
-				DisableOptions:            true,
 				DisableTransferSizeOption: true,
 				DisableBlockSizeOption:    true,
 				TracePackets:              true,
@@ -396,9 +394,10 @@ func TestPutFile(t *testing.T) {
 	t.Run("basic write request", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			config := ClientConfig{
-				DisableOptions: true,
-				TracePackets:   true,
-				Logger:         log.New(&testLogWriter{t}, "", 0),
+				DisableTransferSizeOption: true,
+				DisableBlockSizeOption:    true,
+				TracePackets:              true,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
 			}
 
 			reader := bytes.NewReader(data[0:768])
@@ -420,9 +419,10 @@ func TestPutFile(t *testing.T) {
 	t.Run("write with block-aligned file size", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			config := ClientConfig{
-				DisableOptions: true,
-				TracePackets:   true,
-				Logger:         log.New(&testLogWriter{t}, "", 0),
+				DisableTransferSizeOption: true,
+				DisableBlockSizeOption:    true,
+				TracePackets:              true,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
 			}
 
 			reader := bytes.NewReader(data[0:1024])
@@ -446,7 +446,6 @@ func TestPutFile(t *testing.T) {
 	t.Run("write with tsize option", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			config := ClientConfig{
-				DisableOptions:            false,
 				DisableTransferSizeOption: false,
 				DisableBlockSizeOption:    true,
 				TracePackets:              true,
@@ -472,7 +471,6 @@ func TestPutFile(t *testing.T) {
 	t.Run("write with blksize option - non-block-size aligned", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			config := ClientConfig{
-				DisableOptions:            false,
 				DisableTransferSizeOption: true,
 				DisableBlockSizeOption:    false,
 				TracePackets:              true,
@@ -499,7 +497,6 @@ func TestPutFile(t *testing.T) {
 	t.Run("write with blksize option - block-size aligned", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			config := ClientConfig{
-				DisableOptions:            false,
 				DisableTransferSizeOption: true,
 				DisableBlockSizeOption:    false,
 				TracePackets:              true,
@@ -528,7 +525,6 @@ func TestPutFile(t *testing.T) {
 	t.Run("write with blksize option modified by server", func(t *testing.T) {
 		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
 			config := ClientConfig{
-				DisableOptions:            false,
 				DisableTransferSizeOption: true,
 				DisableBlockSizeOption:    false,
 				TracePackets:              true,
