@@ -330,4 +330,115 @@ func TestPutFile(t *testing.T) {
 			{Send: Ack{Block: 3}},
 		})
 	})
+
+	t.Run("write with tsize option", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			config := ClientConfig{
+				DisableOptions:            false,
+				DisableTransferSizeOption: false,
+				DisableBlockSizeOption:    true,
+				TracePackets:              true,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
+			}
+
+			reader := bytes.NewReader(data[0:768])
+			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
+			if err != nil {
+				t.Errorf("PutFile failed: %v", err)
+				return
+			}
+		}, []testStep{
+			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"tsize": "768"}}},
+			{Send: Ack{Block: 0}},
+			{Receive: Data{Block: 1, Data: data[0:512]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[512:768]}},
+			{Send: Ack{Block: 2}},
+		})
+	})
+
+	t.Run("write with blksize option - non-block-size aligned", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			config := ClientConfig{
+				DisableOptions:            false,
+				DisableTransferSizeOption: true,
+				DisableBlockSizeOption:    false,
+				TracePackets:              true,
+				MaxBlockSize:              768,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
+			}
+
+			reader := bytes.NewReader(data[0:1024])
+			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
+			if err != nil {
+				t.Errorf("PutFile failed: %v", err)
+				return
+			}
+		}, []testStep{
+			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
+			{Send: OptionsAck{Options: map[string]string{"blksize": "768"}}},
+			{Receive: Data{Block: 1, Data: data[0:768]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[768:1024]}},
+			{Send: Ack{Block: 2}},
+		})
+	})
+
+	t.Run("write with blksize option - block-size aligned", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			config := ClientConfig{
+				DisableOptions:            false,
+				DisableTransferSizeOption: true,
+				DisableBlockSizeOption:    false,
+				TracePackets:              true,
+				MaxBlockSize:              768,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
+			}
+
+			reader := bytes.NewReader(data[0:1536])
+			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
+			if err != nil {
+				t.Errorf("PutFile failed: %v", err)
+				return
+			}
+		}, []testStep{
+			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
+			{Send: OptionsAck{Options: map[string]string{"blksize": "768"}}},
+			{Receive: Data{Block: 1, Data: data[0:768]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[768:1536]}},
+			{Send: Ack{Block: 2}},
+			{Receive: Data{Block: 3, Data: []byte{}}},
+			{Send: Ack{Block: 3}},
+		})
+	})
+
+	t.Run("write with blksize option modified by server", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			config := ClientConfig{
+				DisableOptions:            false,
+				DisableTransferSizeOption: true,
+				DisableBlockSizeOption:    false,
+				TracePackets:              true,
+				MaxBlockSize:              768,
+				Logger:                    log.New(&testLogWriter{t}, "", 0),
+			}
+
+			reader := bytes.NewReader(data[0:1024])
+			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
+			if err != nil {
+				t.Errorf("PutFile failed: %v", err)
+				return
+			}
+		}, []testStep{
+			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
+			{Send: OptionsAck{Options: map[string]string{"blksize": "384"}}},
+			{Receive: Data{Block: 1, Data: data[0:384]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[384:768]}},
+			{Send: Ack{Block: 2}},
+			{Receive: Data{Block: 3, Data: data[768:1024]}},
+			{Send: Ack{Block: 3}},
+		})
+	})
 }

@@ -23,10 +23,13 @@ func (e *TftpRemoteError) Error() string {
 }
 
 type ClientConfig struct {
-	DisableOptions bool
-	MaxRetries     int
-	TracePackets   bool
-	Logger         *log.Logger
+	DisableOptions            bool
+	DisableTransferSizeOption bool
+	DisableBlockSizeOption    bool
+	MaxBlockSize              uint16
+	MaxRetries                int
+	TracePackets              bool
+	Logger                    *log.Logger
 }
 
 func validateClientConfig(userConfig *ClientConfig) (*ClientConfig, error) {
@@ -37,6 +40,12 @@ func validateClientConfig(userConfig *ClientConfig) (*ClientConfig, error) {
 	if config.MaxRetries == 0 {
 		config.MaxRetries = 5
 	}
+	if config.MaxBlockSize == 0 {
+		config.MaxBlockSize = DEFAULT_BLOCKSIZE
+	} else if config.MaxBlockSize < MIN_BLOCK_SIZE || config.MaxBlockSize > MAX_BLOCK_SIZE {
+		return nil, errors.New("invalid MaxBlockSize config")
+	}
+
 	return &config, nil
 }
 
@@ -252,9 +261,17 @@ func PutFile(
 		tracePackets:   config.TracePackets,
 	}
 
-	//enableTransferSizeOption := true
-	requestedBlockSize := DEFAULT_BLOCKSIZE
-	enableBlockSizeOption := false
+	enableTransferSizeOption := !config.DisableOptions && !config.DisableTransferSizeOption
+	totalSize := SizeOfReader(reader)
+	if totalSize == -1 {
+		enableTransferSizeOption = false
+	}
+
+	var requestedBlockSize uint16 = DEFAULT_BLOCKSIZE
+	enableBlockSizeOption := !config.DisableOptions && !config.DisableBlockSizeOption
+	if enableBlockSizeOption {
+		requestedBlockSize = config.MaxBlockSize
+	}
 
 	// Build the write request.
 	writeRequest := WriteRequest{
@@ -263,11 +280,11 @@ func PutFile(
 		Options:  make(map[string]string),
 	}
 	if !config.DisableOptions {
-		//if enableTransferSizeOption {
-		//	rrq.Options["tsize"] = "0"
-		//}
+		if enableTransferSizeOption {
+			writeRequest.Options["tsize"] = strconv.FormatInt(totalSize, 10)
+		}
 		if enableBlockSizeOption {
-			writeRequest.Options["blksize"] = strconv.Itoa(requestedBlockSize)
+			writeRequest.Options["blksize"] = strconv.Itoa(int(requestedBlockSize))
 		}
 	}
 
@@ -300,11 +317,19 @@ func PutFile(
 	case OptionsAck:
 		// Parse the options to understand what the server did and did not accept.
 		if value, ok := packet.Options["blksize"]; ok {
-			accetpedBlockSize, err := strconv.Atoi(value)
+			acceptedBlockSize, err := strconv.Atoi(value)
 			if err == nil {
-				// TODO: validate the accepted blocksize
-				state.log("using block size = %v", accetpedBlockSize)
-				state.blockSize = uint16(accetpedBlockSize)
+				if acceptedBlockSize < MIN_BLOCK_SIZE || acceptedBlockSize > MAX_BLOCK_SIZE {
+					state.log("block size %v is outside allowed range", acceptedBlockSize)
+					state.send(&Error{Code: ERR_INVALID_OPTIONS, Message: "Invalid blksize option"})
+					return TftpProtocolViolation
+				}
+				state.log("using block size = %v", acceptedBlockSize)
+				state.blockSize = uint16(acceptedBlockSize)
+			} else {
+				state.log("Unable to convert blocksize")
+				state.send(&Error{Code: ERR_INVALID_OPTIONS, Message: "Invalid blksize option"})
+				return TftpProtocolViolation
 			}
 		}
 	}
