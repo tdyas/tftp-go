@@ -1,3 +1,3 @@
-module tftp-go
+module github.com/tdyas/tftp-go
 
-go 1.12
+go 1.13
