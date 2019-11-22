@@ -23,7 +23,8 @@ func dummyServerLoop(ctx context.Context, t *testing.T, conn1 *PacketChan, conn2
 	var clientAddr net.Addr
 	gotFirstPacket := false
 
-	for _, step := range steps {
+	for i, step := range steps {
+		t.Logf("step %d of %d", i+1, len(steps))
 		if step.Send != nil {
 			if clientAddr == nil {
 				t.Error("send configured before first receive")
@@ -95,8 +96,8 @@ func dummyServerLoop(ctx context.Context, t *testing.T, conn1 *PacketChan, conn2
 
 func runClientTest(t *testing.T, f func(context.Context, net.Addr), steps []testStep) {
 	d, _ := time.ParseDuration("100ms")
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(d))
-	defer cancel()
+	ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(d))
+	//defer cancel()
 
 	conn1, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -127,7 +128,7 @@ func runClientTest(t *testing.T, f func(context.Context, net.Addr), steps []test
 	join := make(chan bool)
 	go func() {
 		dummyServerLoop(ctx, t, pchan1, pchan2, steps)
-		cancel()
+		//cancel()
 		join <- true
 	}()
 
@@ -268,6 +269,65 @@ func TestGetFile(t *testing.T) {
 			{Receive: Ack{Block: 0}},
 			{Send: Data{Block: 1, Data: data[0:256]}},
 			{Receive: Ack{Block: 1}},
+		})
+	})
+}
+
+func TestPutFile(t *testing.T) {
+	data := make([]byte, 3*512)
+	_, err := rand.Read(data)
+	if err != nil {
+		t.Errorf("Unable to fill buffer: %v", err)
+		return
+	}
+
+	t.Run("basic write request", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			config := ClientConfig{
+				DisableOptions: true,
+				TracePackets:   true,
+				Logger:         log.New(&testLogWriter{t}, "", 0),
+			}
+
+			reader := bytes.NewReader(data[0:768])
+			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
+			if err != nil {
+				t.Errorf("PutFile failed: %v", err)
+				return
+			}
+		}, []testStep{
+			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
+			{Send: Ack{Block: 0}},
+			{Receive: Data{Block: 1, Data: data[0:512]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[512:768]}},
+			{Send: Ack{Block: 2}},
+		})
+	})
+
+	t.Run("write with block-aligned file size", func(t *testing.T) {
+		runClientTest(t, func(ctx context.Context, serverAddr net.Addr) {
+			config := ClientConfig{
+				DisableOptions: true,
+				TracePackets:   true,
+				Logger:         log.New(&testLogWriter{t}, "", 0),
+			}
+
+			reader := bytes.NewReader(data[0:1024])
+			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
+			if err != nil {
+				t.Errorf("PutFile failed: %v", err)
+				return
+			}
+		}, []testStep{
+			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
+			{Send: Ack{Block: 0}},
+			{Receive: Data{Block: 1, Data: data[0:512]}},
+			{Send: Ack{Block: 1}},
+			{Receive: Data{Block: 2, Data: data[512:1024]}},
+			{Send: Ack{Block: 2}},
+			{Receive: Data{Block: 3, Data: []byte{}}},
+			{Send: Ack{Block: 3}},
 		})
 	})
 }
