@@ -3,6 +3,7 @@ package tftp
 import (
 	"bytes"
 	"context"
+	"github.com/stretchr/testify/assert"
 	"log"
 	"math/rand"
 	"net"
@@ -163,18 +164,9 @@ func TestGetFile(t *testing.T) {
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
-			if err != nil {
-				t.Errorf("GetFile failed: %v", err)
-				return
-			}
-			if buffer.Len() != 768 {
-				t.Error("Length does not match")
-				return
-			}
-			if !bytes.Equal(data[0:768], buffer.Bytes()) {
-				t.Error("Bytes read do not match")
-				return
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, 768, buffer.Len())
+			assert.Equal(t, data[0:768], buffer.Bytes())
 		}, []testStep{
 			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet"}},
 			{Send: Data{Block: 1, Data: data[0:512]}},
@@ -195,18 +187,9 @@ func TestGetFile(t *testing.T) {
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
-			if err != nil {
-				t.Errorf("GetFile failed: %v", err)
-				return
-			}
-			if buffer.Len() != 1024 {
-				t.Error("Length does not match")
-				return
-			}
-			if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-				t.Error("Bytes read do not match")
-				return
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, 1024, buffer.Len())
+			assert.Equal(t, data[0:1024], buffer.Bytes())
 		}, []testStep{
 			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet"}},
 			{Send: Data{Block: 1, Data: data[0:512]}},
@@ -228,18 +211,9 @@ func TestGetFile(t *testing.T) {
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
-			if err != nil {
-				t.Errorf("GetFile failed: %v", err)
-				return
-			}
-			if buffer.Len() != 768 {
-				t.Error("Length does not match")
-				return
-			}
-			if !bytes.Equal(data[0:768], buffer.Bytes()) {
-				t.Error("Bytes read do not match")
-				return
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, 768, buffer.Len())
+			assert.Equal(t, data[0:768], buffer.Bytes())
 		}, []testStep{
 			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"tsize": "0"}}},
 			{Send: OptionsAck{Options: map[string]string{"tsize": "768"}}},
@@ -261,12 +235,8 @@ func TestGetFile(t *testing.T) {
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
-			if err != TransferSizeError {
-				t.Errorf("GetFile failed unexpectedly: %v", err)
-				return
-			} else if err == nil {
-				t.Error("GetFile should not have succeeded")
-			}
+			assert.Error(t, err)
+			assert.Equal(t, TransferSizeError, err)
 		}, []testStep{
 			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"tsize": "0"}}},
 			{Send: OptionsAck{Options: map[string]string{"tsize": "300"}}},
@@ -287,18 +257,9 @@ func TestGetFile(t *testing.T) {
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
-			if err != nil {
-				t.Errorf("GetFile failed: %v", err)
-				return
-			}
-			if buffer.Len() != 1024 {
-				t.Error("Length does not match")
-				return
-			}
-			if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-				t.Error("Bytes read do not match")
-				return
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, 1024, buffer.Len())
+			assert.Equal(t, data[0:1024], buffer.Bytes())
 		}, []testStep{
 			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
 			{Send: OptionsAck{Options: map[string]string{"blksize": "768"}}},
@@ -321,18 +282,9 @@ func TestGetFile(t *testing.T) {
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
-			if err != nil {
-				t.Errorf("GetFile failed: %v", err)
-				return
-			}
-			if buffer.Len() != 1536 {
-				t.Error("Length does not match")
-				return
-			}
-			if !bytes.Equal(data[0:1536], buffer.Bytes()) {
-				t.Error("Bytes read do not match")
-				return
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, 1536, buffer.Len())
+			assert.Equal(t, data[0:1536], buffer.Bytes())
 		}, []testStep{
 			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
 			{Send: OptionsAck{Options: map[string]string{"blksize": "768"}}},
@@ -357,18 +309,9 @@ func TestGetFile(t *testing.T) {
 			}
 
 			err := GetFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, &buffer)
-			if err != nil {
-				t.Errorf("GetFile failed: %v", err)
-				return
-			}
-			if buffer.Len() != 1024 {
-				t.Error("Length does not match")
-				return
-			}
-			if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-				t.Error("Bytes read do not match")
-				return
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, 1024, buffer.Len())
+			assert.Equal(t, data[0:1024], buffer.Bytes())
 		}, []testStep{
 			{Receive: ReadRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
 			{Send: OptionsAck{Options: map[string]string{"blksize": "384"}}},
@@ -402,10 +345,7 @@ func TestPutFile(t *testing.T) {
 
 			reader := bytes.NewReader(data[0:768])
 			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
-			if err != nil {
-				t.Errorf("PutFile failed: %v", err)
-				return
-			}
+			assert.NoError(t, err)
 		}, []testStep{
 			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
 			{Send: Ack{Block: 0}},
@@ -427,10 +367,7 @@ func TestPutFile(t *testing.T) {
 
 			reader := bytes.NewReader(data[0:1024])
 			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
-			if err != nil {
-				t.Errorf("PutFile failed: %v", err)
-				return
-			}
+			assert.NoError(t, err)
 		}, []testStep{
 			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet"}},
 			{Send: Ack{Block: 0}},
@@ -454,10 +391,7 @@ func TestPutFile(t *testing.T) {
 
 			reader := bytes.NewReader(data[0:768])
 			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
-			if err != nil {
-				t.Errorf("PutFile failed: %v", err)
-				return
-			}
+			assert.NoError(t, err)
 		}, []testStep{
 			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"tsize": "768"}}},
 			{Send: Ack{Block: 0}},
@@ -480,10 +414,7 @@ func TestPutFile(t *testing.T) {
 
 			reader := bytes.NewReader(data[0:1024])
 			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
-			if err != nil {
-				t.Errorf("PutFile failed: %v", err)
-				return
-			}
+			assert.NoError(t, err)
 		}, []testStep{
 			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
 			{Send: OptionsAck{Options: map[string]string{"blksize": "768"}}},
@@ -506,10 +437,7 @@ func TestPutFile(t *testing.T) {
 
 			reader := bytes.NewReader(data[0:1536])
 			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
-			if err != nil {
-				t.Errorf("PutFile failed: %v", err)
-				return
-			}
+			assert.NoError(t, err)
 		}, []testStep{
 			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
 			{Send: OptionsAck{Options: map[string]string{"blksize": "768"}}},
@@ -534,10 +462,7 @@ func TestPutFile(t *testing.T) {
 
 			reader := bytes.NewReader(data[0:1024])
 			err := PutFile(ctx, serverAddr.String(), "xyzzy", "octet", &config, reader)
-			if err != nil {
-				t.Errorf("PutFile failed: %v", err)
-				return
-			}
+			assert.NoError(t, err)
 		}, []testStep{
 			{Receive: WriteRequest{Filename: "xyzzy", Mode: "octet", Options: map[string]string{"blksize": "768"}}},
 			{Send: OptionsAck{Options: map[string]string{"blksize": "384"}}},

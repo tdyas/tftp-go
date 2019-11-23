@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"io"
 	"io/ioutil"
 	"log"
@@ -23,24 +24,17 @@ type testStep struct {
 func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
-	defer cancel()
+	ctx, _ := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
 
 	var remoteAddr net.Addr
 
 	// Create a local socket as the "client" for this test.
 	clientConn, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Errorf("Unable to open socket: %v", err)
-		return
-	}
+	assert.NoError(t, err)
+	defer clientConn.Close()
 
 	client, err := NewPacketChan(clientConn, 1, 1)
-	if err != nil {
-		clientConn.Close()
-		t.Errorf("Unable to open socket: %v", err)
-		return
-	}
+	assert.NoError(t, err)
 	defer client.Close()
 
 	// Loop through the test steps and drive the server.
@@ -55,10 +49,7 @@ func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 			client.Outgoing <- Packet{step.Send.ToBytes(), sendAddr, sent}
 			select {
 			case err := <-sent:
-				if err != nil {
-					t.Errorf("send failed for packet %v: %v", step.Send, err)
-					return
-				}
+				assert.NoError(t, err, "send failed for packet %v", step.Send)
 			case <-ctx.Done():
 				return
 			}
@@ -73,21 +64,14 @@ func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 				actualBytes := rawPacket.Data
 
 				packet, err := PacketFromBytes(actualBytes)
-				if err != nil {
-					t.Errorf("Unable to decode packet: %v", err)
-					return
-				}
+				assert.NoError(t, err, "Unable to decode packet")
 
 				t.Logf("received: %v", packet)
 
-				if !bytes.Equal(expectedBytes, actualBytes) {
-					t.Errorf("packet mismatch: expected=[%s], actual=[%s]", step.Receive, packet)
-					return
-				}
+				assert.Equal(t, expectedBytes, actualBytes, "packet mismatch: expected=[%s], actual=[%s]", step.Receive, packet)
 
 			case <-ctx.Done():
-				t.Errorf("Context cancelled: %v", ctx.Err())
-				return
+				assert.FailNow(t, "Context cancelled: %v", ctx.Err())
 			}
 		}
 	}
@@ -118,10 +102,7 @@ func TestReadSupport(t *testing.T) {
 	}
 
 	server, err := NewServer("127.0.0.1:0", &config)
-	if err != nil {
-		t.Errorf("Unable to create server: %v", err)
-		return
-	}
+	assert.NoError(t, err)
 	defer server.Close()
 
 	mainRemoteAddr := server.LocalAddr()
@@ -306,10 +287,7 @@ func TestWriteSupport(t *testing.T) {
 	}
 
 	server, err := NewServer("127.0.0.1:0", &config)
-	if err != nil {
-		t.Errorf("Unable to create server: %v", err)
-		return
-	}
+	assert.NoError(t, err)
 	defer server.Close()
 
 	mainRemoteAddr := server.LocalAddr()
@@ -336,9 +314,7 @@ func TestWriteSupport(t *testing.T) {
 				{Receive: Ack{Block: 2}},
 			})
 			<-buffer.closedSignal
-			if !bytes.Equal(data[0:768], buffer.Bytes()) {
-				t.Error("Results do not match")
-			}
+			assert.Equal(t, data[0:768], buffer.Bytes())
 		})
 
 		t.Run("block aligned write", func(t *testing.T) {
@@ -354,9 +330,7 @@ func TestWriteSupport(t *testing.T) {
 				{Receive: Ack{Block: 3}},
 			})
 			<-buffer.closedSignal
-			if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-				t.Error("Results do not match")
-			}
+			assert.Equal(t, data[0:1024], buffer.Bytes())
 		})
 
 		t.Run("blksize option rejected (too small)", func(t *testing.T) {
@@ -387,9 +361,7 @@ func TestWriteSupport(t *testing.T) {
 				{Receive: Ack{1}},
 			})
 			<-buffer.closedSignal
-			if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-				t.Errorf("Results do not match")
-			}
+			assert.Equal(t, data[0:1024], buffer.Bytes())
 		})
 
 		t.Run("larger blksize write", func(t *testing.T) {
@@ -404,9 +376,7 @@ func TestWriteSupport(t *testing.T) {
 				{Receive: Ack{2}},
 			})
 			<-buffer.closedSignal
-			if !bytes.Equal(data[0:1024], buffer.Bytes()) {
-				t.Errorf("Results do not match")
-			}
+			assert.Equal(t, data[0:1024], buffer.Bytes())
 		})
 
 		t.Run("no read support", func(t *testing.T) {
