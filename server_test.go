@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"io"
 	"io/ioutil"
 	"log"
@@ -30,11 +30,11 @@ func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 
 	// Create a local socket as the "client" for this test.
 	clientConn, err := net.ListenPacket("udp", "127.0.0.1:0")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer clientConn.Close()
 
 	client, err := NewPacketChan(clientConn, 1, 1)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer client.Close()
 
 	// Loop through the test steps and drive the server.
@@ -49,7 +49,7 @@ func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 			client.Outgoing <- Packet{step.Send.ToBytes(), sendAddr, sent}
 			select {
 			case err := <-sent:
-				assert.NoError(t, err, "send failed for packet %v", step.Send)
+				require.NoError(t, err, "send failed for packet %v", step.Send)
 			case <-ctx.Done():
 				return
 			}
@@ -64,14 +64,14 @@ func runTest(t *testing.T, mainRemoteAddr net.Addr, steps []testStep) {
 				actualBytes := rawPacket.Data
 
 				packet, err := PacketFromBytes(actualBytes)
-				assert.NoError(t, err, "Unable to decode packet")
+				require.NoError(t, err, "Unable to decode packet")
 
 				t.Logf("received: %v", packet)
 
-				assert.Equal(t, expectedBytes, actualBytes, "packet mismatch: expected=[%s], actual=[%s]", step.Receive, packet)
+				require.Equal(t, expectedBytes, actualBytes, "packet mismatch: expected=[%s], actual=[%s]", step.Receive, packet)
 
 			case <-ctx.Done():
-				assert.FailNow(t, "Context cancelled: %v", ctx.Err())
+				require.FailNow(t, "Context cancelled: %v", ctx.Err())
 			}
 		}
 	}
@@ -102,7 +102,7 @@ func TestReadSupport(t *testing.T) {
 	}
 
 	server, err := NewServer("127.0.0.1:0", &config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer server.Close()
 
 	mainRemoteAddr := server.LocalAddr()
@@ -245,7 +245,7 @@ func TestWriteSupport(t *testing.T) {
 	var nextBufferKey = 0
 
 	// Allocate a buffer for a single transfer. The "key" for the buffer is passed
-	// into config.GetWriteStrean as part of the filename.
+	// into config.GetWriteStream as part of the filename.
 	setupBuffer := func(t *testing.T) (*closableBuffer, string) {
 		bufferKey := strconv.Itoa(nextBufferKey)
 		nextBufferKey++
@@ -287,7 +287,7 @@ func TestWriteSupport(t *testing.T) {
 	}
 
 	server, err := NewServer("127.0.0.1:0", &config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer server.Close()
 
 	mainRemoteAddr := server.LocalAddr()
@@ -314,7 +314,7 @@ func TestWriteSupport(t *testing.T) {
 				{Receive: Ack{Block: 2}},
 			})
 			<-buffer.closedSignal
-			assert.Equal(t, data[0:768], buffer.Bytes())
+			require.Equal(t, data[0:768], buffer.Bytes())
 		})
 
 		t.Run("block aligned write", func(t *testing.T) {
@@ -330,7 +330,7 @@ func TestWriteSupport(t *testing.T) {
 				{Receive: Ack{Block: 3}},
 			})
 			<-buffer.closedSignal
-			assert.Equal(t, data[0:1024], buffer.Bytes())
+			require.Equal(t, data[0:1024], buffer.Bytes())
 		})
 
 		t.Run("blksize option rejected (too small)", func(t *testing.T) {
@@ -361,7 +361,7 @@ func TestWriteSupport(t *testing.T) {
 				{Receive: Ack{1}},
 			})
 			<-buffer.closedSignal
-			assert.Equal(t, data[0:1024], buffer.Bytes())
+			require.Equal(t, data[0:1024], buffer.Bytes())
 		})
 
 		t.Run("larger blksize write", func(t *testing.T) {
@@ -376,7 +376,7 @@ func TestWriteSupport(t *testing.T) {
 				{Receive: Ack{2}},
 			})
 			<-buffer.closedSignal
-			assert.Equal(t, data[0:1024], buffer.Bytes())
+			require.Equal(t, data[0:1024], buffer.Bytes())
 		})
 
 		t.Run("no read support", func(t *testing.T) {
