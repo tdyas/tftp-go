@@ -1,12 +1,15 @@
 name: build
 on:
   - push
+  - pull_request
 jobs:
   build:
-    runs-on: ubuntu-18.04
+    runs-on:
+      - ubuntu-latest
+      - windows-latest
     strategy:
       matrix:
-        go: [ '1.11.13', '1.12.14', '1.13.5' ]
+        go: [ '1.11.x', '1.12.x', '1.13.x' ]
     name: Go ${{ matrix.go }} build
     steps:
       - uses: actions/checkout@v1
